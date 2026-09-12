@@ -1,8 +1,11 @@
-# ---> C
-# Prerequisites
-*.d
+# Added
+*.vs
+*.user
+Build/
+*.aps
 
 # Object files
+*.d
 *.o
 *.ko
 *.obj
@@ -51,4 +54,3 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
-

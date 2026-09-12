@@ -1,0 +1,57 @@
+# Configuration File for Pre-Commit Hooks
+# exclude: Docs/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    - id: check-merge-conflict
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: mixed-line-ending
+    - id: trailing-whitespace
+
+  # C Hooks
+
+  # Clang-Format
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.7
+    hooks:
+    - id: clang-format
+      args:
+          - '--style=file'
+
+  # Python Hooks
+
+  # Black (Auto-formats Python code)
+  - repo: https://github.com/psf/black
+    rev: 25.1.0  # Use the latest stable version
+    hooks:
+    - id: black
+      args:
+        - "--line-length=88"  # Customize line length if needed
+
+  # Flake8 (Python Linter for style & syntax checks)
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1  # Use latest stable version
+    hooks:
+    - id: flake8
+      args:
+        - "--max-line-length=88"  # Match Black's line length
+
+  # Pylint (Static code analysis)
+  - repo: https://github.com/pycqa/pylint
+    rev: v3.3.4  # Latest stable version
+    hooks:
+    - id: pylint
+      args:
+        - "--disable=R"  # Disable refactoring (R)
+        - "--enable=C0114,C0115,C0116" # enable docstring checks
+
+  # isort (Sorts Python imports)
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.0
+    hooks:
+    - id: isort
+      args:
+        - "--profile=black"  # Match Black's import style

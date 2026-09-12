@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="SnailNet/SnailNet.vcxproj" Id="eb62883c-660f-4b3b-b0a4-f5e5b44187fe" />
+</Solution>
