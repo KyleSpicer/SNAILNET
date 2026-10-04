@@ -819,15 +819,21 @@ static VOID BuildControls(_In_opt_ HWND hWindow, _In_opt_ HINSTANCE hInstance)
     AddTextPanel(hWindow, IDC_ABOUT_TEXT, HelpAboutText(), &Panel);
 
     /* Outside the tab control on purpose, so the connection count stays
-       readable while the Help tab is open. */
+       readable while the Help tab is open.
+
+       SS_LEFT and STATUS_H rather than SS_PATHELLIPSIS and one row: the
+       status text is an address pair, a latency and the session counters,
+       which does not fit this window's width on one line. SS_PATHELLIPSIS
+       cut the end off, so the counters it exists to show were never
+       visible. */
     CreateWindowExW(0,
                     WND_CLASS_STATIC,
                     MSG_IDLE,
-                    WS_CHILD | WS_VISIBLE | SS_PATHELLIPSIS,
+                    WS_CHILD | WS_VISIBLE | SS_LEFT,
                     MARGIN,
                     MARGIN + TABS_H + ROW_GAP,
                     CLIENT_W - 2 * MARGIN,
-                    ROW_H,
+                    STATUS_H,
                     hWindow,
                     (HMENU)(INT_PTR)IDC_STATUS,
                     NULL,

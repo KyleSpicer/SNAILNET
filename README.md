@@ -15,6 +15,7 @@ or high-latency links without touching the network stack.
 - [How it works](#how-it-works)
 - [Building from source](#building-from-source)
 - [Running SNAILNET](#running-snailnet)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -66,10 +67,28 @@ Launch the executable and fill in five fields:
 | Listen port | The port your client connects to |
 | Target address | The real service |
 | Target port | The real service's port |
-| Latency (ms) | Delay applied in each direction |
+| Latency (ms) | Delay applied to traffic on its way back to the client |
 
 Press **Start**, point your client at the listen address, and traffic flows
 through with the delay applied.
+
+The delay is **one way**. Data travelling back to the client is held; data
+heading out to the target is forwarded as soon as it arrives, so a request
+and response exchange pays the latency once rather than twice.
+
+## Testing
+
+An automated suite drives the built executable through its window, moving
+real TCP traffic through the relay and checking what arrives.
+
+```console
+cd Tests
+poetry install
+poetry run pytest
+```
+
+See [Docs/TestGuide.md](Docs/TestGuide.md) for prerequisites, what each test
+covers, and how to read a failure.
 
 ## Contributing
 
