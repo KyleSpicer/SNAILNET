@@ -62,10 +62,17 @@
 #define TAB_CAPTION_ABOUT L"About"
 
 #define FMT_BAD_PORT L"%s must be between %u and %u."
-#define FMT_RUNNING L"Listening on %s:%u -> %s:%u (+%u ms to client)"
-#define FMT_SESSIONS L"%s  |  %u active, %u total"
 #define FMT_START_FAILED L"Could not start: %s"
-#define FMT_RELAY_ERROR L"%s  |  %s"
+
+//
+// The status block is several lines. One line could not hold an address
+// pair, the latency and the counters at this window width, so the static
+// control ellipsized the end and the session counts were never visible.
+// Static controls break on CRLF, the same as the edit controls in Help.c.
+//
+#define FMT_RUNNING L"Listening on:  %s:%u\r\nForwarding to:  %s:%u\r\nLatency:  %u ms to client"
+#define FMT_SESSIONS L"%s\r\nSessions:  %u active, %u total"
+#define FMT_RELAY_ERROR L"%s\r\nError:  %s"
 
 typedef enum _SNAILNET_LIMITS
 {
@@ -130,8 +137,9 @@ typedef enum _SNAILNET_LAYOUT
     HEADER_H   = 112,
     PANEL_PAD  = 8,
     TABS_H     = 410,
+    STATUS_H   = 92, // four lines: three of detail plus one for an error
     CLIENT_W   = 440,
-    CLIENT_H   = 490
+    CLIENT_H   = 544
 } SNAILNET_LAYOUT,
     *PSNAILNET_LAYOUT;
 

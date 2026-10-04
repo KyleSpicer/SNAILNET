@@ -47,6 +47,11 @@ repos:
       args:
         - "--disable=R"  # Disable refactoring (R)
         - "--enable=C0114,C0115,C0116" # enable docstring checks
+      # The hook runs in its own isolated environment, so anything the code
+      # imports has to be named here or pylint reports it as E0401. The test
+      # suite under Tests/ imports pytest.
+      additional_dependencies:
+        - pytest
 
   # isort (Sorts Python imports)
   - repo: https://github.com/pycqa/isort

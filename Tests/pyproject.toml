@@ -1,0 +1,64 @@
+[project]
+name = "snailnet-tests"
+version = "1.0.0"
+description = "End to end test suite for SnailNet, driving the shipping executable through its Win32 controls."
+authors = [{ name = "4-Projects" }]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+license = { text = "MIT" }
+dependencies = []
+
+[project.urls]
+Repository = "https://gitea.com/4-Projects/SNAILNET"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "snailnet_tests" }]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+black = "^25.1.0"
+flake8 = "^7.1.1"
+isort = "^6.0.0"
+pylint = "^3.3.4"
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^8.1.0"
+furo = "^2024.8.6"
+
+# ---------------------------------------------------------------------------
+# pytest
+#
+# The relay is a single process bound to a port, and the suite starts and
+# stops it per test, so nothing here may run in parallel. Timeouts are long
+# because the large transfer tests genuinely move 8 MB through a delay.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --strict-markers --durations=10"
+markers = [
+    "slow: moves multiple megabytes or waits out a long delay",
+]
+
+# ---------------------------------------------------------------------------
+# Formatting and linting, matched to .pre-commit-config.yaml at the repo root
+# so running the hooks does not fight these settings.
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pylint.main]
+disable = ["R"]
+enable = ["C0114", "C0115", "C0116"]
+
+[tool.pylint.format]
+max-line-length = 88
