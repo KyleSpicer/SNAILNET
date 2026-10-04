@@ -2,13 +2,16 @@
  * @file Main.c
  * @brief Entry point for SnailNet.
  *
- * Creates the main window and runs the message loop. Everything else lives in
- * Ui.c and Commands.c.
+ * Brings Winsock up, creates the main window, and runs the message loop.
+ * Everything else lives in Ui.c, Commands.c, and Relay.c.
  */
 
+#include <WinSock2.h>
 #include <Windows.h>
 
+#include "Relay.h"
 #include "Snailnet.h"
+#include "Sockets.h"
 #include "Ui.h"
 
 INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
@@ -16,16 +19,29 @@ INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
                     _In_ PWSTR         pszCmdLine,
                     _In_ INT           iShowCommand)
 {
-    HWND hWindow = NULL;
-    MSG  Message = {0};
-    INT  iStatus = SNAILNET_SUCCESS;
+    SOCKET_STATUS SockStatus = SOCKET_STATUS_ERROR;
+    HWND          hWindow    = NULL;
+    MSG           Message    = {0};
+    INT           iStatus    = SNAILNET_SUCCESS;
 
     (VOID) hPrev;
     (VOID) pszCmdLine;
 
+    /* Once for the process. The relay starts and stops many times over a
+       session and should not be reference counting Winsock on each pass. */
+    SockStatus = SocketLibInit();
+
+    if (SOCKET_IS_ERROR(SockStatus))
+    {
+        MessageBoxW(NULL, MSG_FAIL_WINSOCK, PROJ_NAME, MB_ICONERROR);
+        return SNAILNET_FAIL_WINSOCK;
+    }
+
     hWindow = WindowCreate(hInstance, iShowCommand, &iStatus);
+
     if (NULL == hWindow)
     {
+        SocketLibCleanup();
         return iStatus;
     }
 
@@ -38,6 +54,11 @@ INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
             DispatchMessageW(&Message);
         }
     }
+
+    /* WM_DESTROY already did this. Repeating it costs nothing and covers the
+       paths that leave the loop without going through the window procedure. */
+    RelayStop();
+    SocketLibCleanup();
 
     return (INT)Message.wParam;
 

@@ -3,6 +3,7 @@
 *.user
 Build/
 *.aps
+*.json
 
 # Object files
 *.d

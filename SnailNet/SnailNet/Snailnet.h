@@ -5,13 +5,30 @@
 
 #pragma once
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+//
+// WinSock2.h has to be pulled in ahead of Windows.h. Windows.h drags in the
+// original winsock.h on its own, and the two collide on sockaddr, timeval and
+// friends. Including them in this order here means every translation unit that
+// takes Snailnet.h gets the right one first.
+//
+#include <WinSock2.h>
+#include <WS2tcpip.h>
 #include <Windows.h>
 
 #define PROJ_NAME L"SnailNet"
 #define WINDOW_CLASS L"SnailNetWindow"
-#define FONT_HEIGHT -17
-#define TITLE_FONT_HEIGHT -40
+#define FONT_HEIGHT (-17)
+#define TITLE_FONT_HEIGHT (-40)
 #define TITLE_FONT_FACE L"Segoe UI"
+
+//
+// Posted by a relay worker. wParam is a RELAY_NOTIFY, lParam is its data.
+//
+#define WM_RELAY_NOTIFY (WM_APP + 1)
 
 #define WND_CLASS_STATIC L"STATIC"
 #define WND_CLASS_EDIT L"EDIT"
@@ -34,22 +51,35 @@
 #define MSG_IDLE L"SnailNet Idle. No active connections."
 #define MSG_NEED_ADDRESSES L"Both addresses are required."
 #define MSG_BAD_LATENCY L"Latency must be a whole number of milliseconds."
+#define MSG_ADDR_TOO_LONG L"That address is too long."
 #define MSG_FAIL_REGISTER L"Failed to register the window class."
 #define MSG_FAIL_CREATE L"Failed to create the main window."
+#define MSG_FAIL_WINSOCK L"Winsock could not be initialised."
+#define MSG_STOPPING L"Stopping. Waiting for active connections to finish."
+
+#define TAB_CAPTION_RELAY L"Relay"
+#define TAB_CAPTION_HELP L"Help"
+#define TAB_CAPTION_ABOUT L"About"
 
 #define FMT_BAD_PORT L"%s must be between %u and %u."
-#define FMT_RUNNING L"Listening on %s:%u -> %s:%u (+%u ms)"
+#define FMT_RUNNING L"Listening on %s:%u -> %s:%u (+%u ms to client)"
+#define FMT_SESSIONS L"%s  |  %u active, %u total"
+#define FMT_START_FAILED L"Could not start: %s"
+#define FMT_RELAY_ERROR L"%s  |  %s"
 
-enum LIMITS
+typedef enum _SNAILNET_LIMITS
 {
-    PORT_MIN       = 1,
-    PORT_MAX       = 65535,
-    ADDR_CCH       = 64, /* characters, not bytes */
-    STATUS_CCH     = 192,
-    PORT_LABEL_CCH = 128
-};
+    PORT_MIN        = 1,
+    PORT_MAX        = 65535,
+    ADDR_CCH        = 64, // characters, not bytes
+    PORT_TEXT_CCH   = 8,
+    STATUS_CCH      = 192,
+    STATUS_LINE_CCH = 320, // status text plus the counters appended to it
+    PORT_LABEL_CCH  = 128
+} SNAILNET_LIMITS,
+    *PSNAILNET_LIMITS;
 
-enum CTL_IDS
+typedef enum _SNAILNET_CTL_ID
 {
     IDC_LISTEN_ADDR = 101,
     IDC_LISTEN_PORT,
@@ -60,10 +90,33 @@ enum CTL_IDS
     IDC_STOP,
     IDC_STATUS,
     IDC_TITLE,
-    IDC_SNAIL
-};
+    IDC_SNAIL,
+    IDC_TABS,
+    IDC_HELP_TEXT,
+    IDC_ABOUT_TEXT,
 
-enum LAYOUT
+    //
+    // The field labels need identifiers of their own now. Tab switching hides
+    // controls one at a time, and a control with no id cannot be found to hide.
+    //
+    IDC_LABEL_LISTEN_ADDR,
+    IDC_LABEL_LISTEN_PORT,
+    IDC_LABEL_TARGET_ADDR,
+    IDC_LABEL_TARGET_PORT,
+    IDC_LABEL_LATENCY
+} SNAILNET_CTL_ID,
+    *PSNAILNET_CTL_ID;
+
+typedef enum _SNAILNET_TAB_INDEX
+{
+    TAB_RELAY = 0,
+    TAB_HELP,
+    TAB_ABOUT,
+    TAB_COUNT
+} SNAILNET_TAB_INDEX,
+    *PSNAILNET_TAB_INDEX;
+
+typedef enum _SNAILNET_LAYOUT
 {
     MARGIN     = 16,
     LABEL_W    = 150,
@@ -75,18 +128,25 @@ enum LAYOUT
     BUTTON_GAP = 14,
     ICON_SIZE  = 64,
     HEADER_H   = 112,
+    PANEL_PAD  = 8,
+    TABS_H     = 410,
     CLIENT_W   = 440,
-    CLIENT_H   = 440,
-};
+    CLIENT_H   = 490
+} SNAILNET_LAYOUT,
+    *PSNAILNET_LAYOUT;
 
-enum RETURNS
+typedef enum _SNAILNET_STATUS
 {
     SNAILNET_SUCCESS = 0,
     SNAILNET_ERROR,
     SNAILNET_FAIL_TO_REGISTER,
-    SNAILNET_FAIL_CREATE_WINDOW
-};
+    SNAILNET_FAIL_CREATE_WINDOW,
+    SNAILNET_FAIL_WINSOCK
+} SNAILNET_STATUS,
+    *PSNAILNET_STATUS;
 
-LRESULT CALLBACK WndProc(HWND hWindow, UINT Message, WPARAM wParam, LPARAM lParam);
+LRESULT
+CALLBACK
+WndProc(_In_ HWND hWindow, _In_ UINT uMessage, _In_ WPARAM wParam, _In_ LPARAM lParam);
 
 /* end of file */
