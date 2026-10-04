@@ -3,14 +3,24 @@
  * @brief Start and stop handlers for the relay.
  *
  * Reads the form, validates it, and drives the relay. The window module owns
- * the controls; this module owns what happens when the buttons are pressed.
+ * the controls; this module owns what happens when the buttons are pressed
+ * and what the status line says afterwards.
  */
 
+#include <WinSock2.h>
 #include <Windows.h>
 #include <StrSafe.h>
 
 #include "Commands.h"
+#include "Relay.h"
 #include "Snailnet.h"
+
+/** Description of the running relay, rebuilt on every start. */
+static WCHAR g_szRunning[STATUS_CCH] = {0};
+
+/** Live sessions, and every session since the last start. */
+static UINT g_uActive = 0;
+static UINT g_uTotal  = 0;
 
 /**
  * @brief Writes a line of text to the status control.
@@ -19,6 +29,13 @@
  * @param pszText Text to display. May be NULL.
  */
 static VOID SetStatus(_In_opt_ HWND hWindow, _In_opt_z_ PCWSTR pszText);
+
+/**
+ * @brief Redraws the status line from the running text and the counters.
+ *
+ * @param hWindow Main window. May be NULL.
+ */
+static VOID RefreshStatus(_In_opt_ HWND hWindow);
 
 /**
  * @brief Reads and range checks a port field.
@@ -37,13 +54,15 @@ ReadPort(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_opt_z_ PCWSTR pszName, _Out
 
 VOID OnStart(_In_opt_ HWND hWindow)
 {
-    WCHAR szListenAddr[ADDR_CCH] = {0};
-    WCHAR szTargetAddr[ADDR_CCH] = {0};
-    WCHAR szMessage[STATUS_CCH]  = {0};
-    UINT  uListenPort            = 0;
-    UINT  uTargetPort            = 0;
-    UINT  uLatencyMs             = 0;
-    BOOL  bValid                 = FALSE;
+    RELAY_CONFIG  Config                     = {0};
+    SOCKET_STATUS SockStatus                 = SOCKET_STATUS_ERROR;
+    WCHAR         szListenAddr[ADDR_CCH]     = {0};
+    WCHAR         szTargetAddr[ADDR_CCH]     = {0};
+    WCHAR         szMessage[STATUS_LINE_CCH] = {0};
+    UINT          uListenPort                = 0;
+    UINT          uTargetPort                = 0;
+    UINT          uLatencyMs                 = 0;
+    BOOL          bValid                     = FALSE;
 
     if (NULL == hWindow)
     {
@@ -77,9 +96,34 @@ VOID OnStart(_In_opt_ HWND hWindow)
         goto EXIT_ON_START;
     }
 
-    /* TODO: hand the configuration to the relay worker thread. */
+    /* The ports go back to text because the resolver takes text. Printing the
+       parsed number rather than the raw field also strips whatever spacing
+       the user typed. */
+    (VOID) StringCchCopyW(Config.wszListenAddr, RELAY_ADDR_CCH, szListenAddr);
+    (VOID) StringCchCopyW(Config.wszTargetAddr, RELAY_ADDR_CCH, szTargetAddr);
+    (VOID) StringCchPrintfW(Config.wszListenPort, RELAY_PORT_CCH, L"%u", uListenPort);
+    (VOID) StringCchPrintfW(Config.wszTargetPort, RELAY_PORT_CCH, L"%u", uTargetPort);
 
-    (VOID) StringCchPrintfW(szMessage,
+    Config.dwLatencyMs = (DWORD)uLatencyMs;
+
+    g_uActive = 0;
+    g_uTotal  = 0;
+
+    SockStatus = RelayStart(&Config, hWindow);
+
+    if (SOCKET_IS_ERROR(SockStatus))
+    {
+        (VOID) StringCchPrintfW(szMessage,
+                                STATUS_LINE_CCH,
+                                FMT_START_FAILED,
+                                SocketStatusText(SockStatus));
+
+        SetStatus(hWindow, szMessage);
+        SetRunning(hWindow, FALSE);
+        goto EXIT_ON_START;
+    }
+
+    (VOID) StringCchPrintfW(g_szRunning,
                             STATUS_CCH,
                             FMT_RUNNING,
                             szListenAddr,
@@ -88,7 +132,7 @@ VOID OnStart(_In_opt_ HWND hWindow)
                             uTargetPort,
                             uLatencyMs);
 
-    SetStatus(hWindow, szMessage);
+    RefreshStatus(hWindow);
     SetRunning(hWindow, TRUE);
 
 EXIT_ON_START:
@@ -104,7 +148,16 @@ VOID OnStop(_In_opt_ HWND hWindow)
         goto EXIT_ON_STOP;
     }
 
-    /* TODO: signal the relay worker thread to shut down and wait for it. */
+    /* Painted before the wait, because RelayStop blocks this thread until the
+       last session thread is gone and nothing would repaint until then. */
+    SetStatus(hWindow, MSG_STOPPING);
+    (VOID) UpdateWindow(hWindow);
+
+    RelayStop();
+
+    g_szRunning[0] = L'\0';
+    g_uActive      = 0;
+    g_uTotal       = 0;
 
     SetStatus(hWindow, MSG_IDLE);
     SetRunning(hWindow, FALSE);
@@ -114,6 +167,64 @@ EXIT_ON_STOP:
     return;
 
 } /* OnStop */
+
+VOID OnShutdown(VOID)
+{
+    RelayStop();
+
+    return;
+
+} /* OnShutdown */
+
+VOID OnRelayNotify(_In_opt_ HWND hWindow, _In_ WPARAM wParam, _In_ LPARAM lParam)
+{
+    WCHAR szMessage[STATUS_LINE_CCH] = {0};
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_ON_NOTIFY;
+    }
+
+    switch ((RELAY_NOTIFY)wParam)
+    {
+    case RELAY_NOTIFY_ACCEPTED:
+        g_uActive++;
+        g_uTotal++;
+        RefreshStatus(hWindow);
+        break;
+
+    case RELAY_NOTIFY_CLOSED:
+        if (0 < g_uActive)
+        {
+            g_uActive--;
+        }
+
+        RefreshStatus(hWindow);
+        break;
+
+    case RELAY_NOTIFY_ERROR:
+        (VOID) StringCchPrintfW(szMessage,
+                                STATUS_LINE_CCH,
+                                FMT_RELAY_ERROR,
+                                g_szRunning,
+                                SocketStatusText((SOCKET_STATUS)lParam));
+
+        SetStatus(hWindow, szMessage);
+        break;
+
+    case RELAY_NOTIFY_LISTENING:
+    case RELAY_NOTIFY_STOPPED:
+        break;
+
+    default:
+        break;
+    }
+
+EXIT_ON_NOTIFY:
+
+    return;
+
+} /* OnRelayNotify */
 
 VOID SetRunning(_In_opt_ HWND hWindow, _In_ BOOL bRunning)
 {
@@ -160,6 +271,30 @@ EXIT_SET_STATUS:
     return;
 
 } /* SetStatus */
+
+static VOID RefreshStatus(_In_opt_ HWND hWindow)
+{
+    WCHAR szMessage[STATUS_LINE_CCH] = {0};
+
+    if (NULL == hWindow || L'\0' == g_szRunning[0])
+    {
+        goto EXIT_REFRESH;
+    }
+
+    (VOID) StringCchPrintfW(szMessage,
+                            STATUS_LINE_CCH,
+                            FMT_SESSIONS,
+                            g_szRunning,
+                            g_uActive,
+                            g_uTotal);
+
+    SetStatus(hWindow, szMessage);
+
+EXIT_REFRESH:
+
+    return;
+
+} /* RefreshStatus */
 
 static BOOL
 ReadPort(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_opt_z_ PCWSTR pszName, _Out_opt_ PUINT puPort)

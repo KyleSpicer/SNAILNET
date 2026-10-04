@@ -4,4 +4,5 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="SnailNet/SnailNet.vcxproj" Id="eb62883c-660f-4b3b-b0a4-f5e5b44187fe" />
+  <Project Path="Sockets/Sockets.vcxproj" Id="f3f9b7aa-64b6-4e06-a176-7e60d9f73155" />
 </Solution>
