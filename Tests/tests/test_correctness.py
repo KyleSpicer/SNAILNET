@@ -1,7 +1,7 @@
 """Stream integrity and latency: does the relay move the right bytes, late.
 
 These are the tests that would catch the failures a delaying proxy is prone
-to — truncating a transfer at a queue boundary, collapsing a half close into
+to: truncating a transfer at a queue boundary, collapsing a half close into
 a full one, applying the delay in both directions, or interleaving two
 clients' streams.
 """
@@ -229,8 +229,8 @@ def test_slow_client_still_gets_every_byte(app, ports):
 
     Note on what this does *not* cover: the resume-from-offset branch in
     DirectionWrite handles a send that completes short. Windows does not
-    produce those for a non-blocking stream socket — WSASend either
-    buffers the whole request or fails with WSAEWOULDBLOCK — so that
+    produce those for a non-blocking stream socket: WSASend either
+    buffers the whole request or fails with WSAEWOULDBLOCK, so that
     branch is defensive and cannot be driven from a black box test here.
     """
     data = payload(1024 * 1024, seed=19)

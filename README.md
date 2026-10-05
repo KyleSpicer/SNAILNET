@@ -13,51 +13,31 @@ or high-latency links without touching the network stack.
 ## Table of Contents
 
 - [How it works](#how-it-works)
-- [Building from source](#building-from-source)
-- [Running SNAILNET](#running-snailnet)
-- [Testing](#testing)
-- [Contributing](#contributing)
+- [Running it](#running-it)
+- [Documentation](#documentation)
 - [License](#license)
 
 ## How it works
 
-TBD
+SnailNet sits between a client and a real server. The client connects to
+SnailNet's listen address instead of the real one; SnailNet opens its own
+connection to the target and forwards bytes between the two.
 
-## Building from source
+The delay is **one way**: only traffic heading back to the client is held.
+A request reaches the target immediately, and only the reply is delayed, so
+a request/response exchange pays the latency once rather than twice.
 
-### Prerequisites
+Delayed bytes are not produced by sleeping on the socket. Each chunk read
+from the target is stamped with the moment it becomes due (arrival time
+plus the configured latency) and queued. A background pass releases it once
+that time passes. Sleeping on the read would add the same delay but also cap
+throughput at one buffer per interval; stamping and queuing does not.
 
-- Windows 10 or later, x64
-- Visual Studio 2026 with the **Desktop development with C++** workload
-  (the C compiler, the Windows SDK, and `rc.exe`)
+Each accepted client gets its own thread and its own connection to the
+target, so several clients can be relayed at once without one affecting
+another's timing.
 
-**Please Note:** No external dependencies. Everything links against the Windows SDK.
-
-### Steps
-
-1. Clone the repository.
-2. Open `SnailNet/SnailNet.slnx` in Visual Studio.
-3. Set the configuration to **x64** and build (Ctrl+Shift+B).
-4. The executable lands in `SnailNet/Build/x64/<Configuration>/SnailNet.exe`.
-
-### Project settings that matter
-
-These are already set in the `.vcxproj`, but they are worth knowing if you
-create a new configuration:
-
-| Setting | Value | Why |
-|---|---|---|
-| Runtime Library | `/MT` (Release), `/MTd` (Debug) | Links the CRT statically so the exe runs without the VC++ redistributable |
-| SubSystem | `Windows` | The entry point is `wWinMain`, not `main` |
-| Warning Level | `/W4` | Catches indirection and sign mismatches that `/W3` lets through |
-| Code Analysis | Enabled | The SAL annotations only do work when `/analyze` runs |
-
-**Please Note:** If you add a static library to the project, it must use the same runtime
-setting. Mixing `/MT` and `/MD` produces `LNK2038`, or worse, a build that
-links and then corrupts the heap because two CRT copies each think they own
-the allocator.
-
-## Running SNAILNET
+## Running it
 
 Launch the executable and fill in five fields:
 
@@ -72,35 +52,22 @@ Launch the executable and fill in five fields:
 Press **Start**, point your client at the listen address, and traffic flows
 through with the delay applied.
 
-The delay is **one way**. Data travelling back to the client is held; data
-heading out to the target is forwarded as soon as it arrives, so a request
-and response exchange pays the latency once rather than twice.
+SnailNet also runs headlessly: any command line argument starts the relay
+directly, with no window, and `--help` lists them. See
+[Docs/UserGuide.md](Docs/UserGuide.md#command-line-mode).
 
-## Testing
+There is no packaged release yet, so for now this means building it
+yourself; see [Docs/DeveloperGuide.md](Docs/DeveloperGuide.md). For two
+worked examples with diagrams, including one with a client on a different
+machine, see [Docs/UserGuide.md](Docs/UserGuide.md).
 
-An automated suite drives the built executable through its window, moving
-real TCP traffic through the relay and checking what arrives.
+## Documentation
 
-```console
-cd Tests
-poetry install
-poetry run pytest
-```
-
-See [Docs/TestGuide.md](Docs/TestGuide.md) for prerequisites, what each test
-covers, and how to read a failure.
-
-## Contributing
-
-Issues and pull requests are welcome.
-
-1. Branch from `main`, naming the branch after the issue: `12-relay-shutdown`.
-2. Keep the conventions above. `pre-commit` will catch formatting.
-3. Build clean at `/W4` with code analysis on.
-4. Reference the issue in the pull request description with `Closes #12`.
-
-Releases are tagged `vMAJOR.MINOR.PATCH`. The project is pre-1.0, so the
-public interface is still allowed to change between minor versions.
+| Guide | For |
+|---|---|
+| [Docs/UserGuide.md](Docs/UserGuide.md) | Running SnailNet, worked examples, troubleshooting |
+| [Docs/DeveloperGuide.md](Docs/DeveloperGuide.md) | Building from source, project layout, coding conventions, contributing |
+| [Docs/TestGuide.md](Docs/TestGuide.md) | Running the automated test suite and reading its output |
 
 ## License
 

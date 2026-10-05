@@ -17,6 +17,25 @@
 #define WAIT_SLOT_ABORT 1
 #define WAIT_SLOT_MAX 2
 
+/** Fixed English text returned by SocketStatusText, one per SOCKET_STATUS
+    value plus the fallback for a code outside the enum. */
+#define SOCKTXT_UNKNOWN L"Unknown socket status."
+#define SOCKTXT_SUCCESS L"Success."
+#define SOCKTXT_ERROR L"The operation failed."
+#define SOCKTXT_INVALID_ARGS L"Invalid arguments."
+#define SOCKTXT_BAD_MEMORY_ALLOC L"Out of memory."
+#define SOCKTXT_WSA_STARTUP_FAIL L"Winsock could not be initialised."
+#define SOCKTXT_RESOLVE_ADDR_ERROR L"The address could not be resolved."
+#define SOCKTXT_CREATE_SOCKET_FAIL L"The socket could not be created."
+#define SOCKTXT_CREATE_EVENT_FAIL L"The network event could not be created."
+#define SOCKTXT_EVENT_SELECT_FAIL L"The socket could not be bound to its event."
+#define SOCKTXT_BIND_ERROR L"The address or port is unavailable."
+#define SOCKTXT_LISTEN_ERROR L"The socket could not listen."
+#define SOCKTXT_ACCEPT_ERROR L"The connection could not be accepted."
+#define SOCKTXT_CONNECT_ERROR L"The target refused the connection or is unreachable."
+#define SOCKTXT_TIMEOUT L"The operation timed out."
+#define SOCKTXT_ABORTED L"The operation was cancelled."
+
 /**
  * @brief Resolves an address and port into an addrinfo list.
  *
@@ -797,72 +816,68 @@ EXIT_CONN_CLOSE:
 PCWSTR
 SocketStatusText(_In_ SOCKET_STATUS Status)
 {
-    PCWSTR pwszText = L"Unknown socket status.";
+    PCWSTR pwszText = SOCKTXT_UNKNOWN;
 
     switch (Status)
     {
     case SOCKET_STATUS_SUCCESS:
-        pwszText = L"Success.";
+        pwszText = SOCKTXT_SUCCESS;
         break;
 
     case SOCKET_STATUS_ERROR:
-        pwszText = L"The operation failed.";
+        pwszText = SOCKTXT_ERROR;
         break;
 
     case SOCKET_STATUS_INVALID_ARGS:
-        pwszText = L"Invalid arguments.";
+        pwszText = SOCKTXT_INVALID_ARGS;
         break;
 
     case SOCKET_STATUS_BAD_MEMORY_ALLOC:
-        pwszText = L"Out of memory.";
+        pwszText = SOCKTXT_BAD_MEMORY_ALLOC;
         break;
 
     case SOCKET_STATUS_WSA_STARTUP_FAIL:
-        pwszText = L"Winsock could not be initialised.";
+        pwszText = SOCKTXT_WSA_STARTUP_FAIL;
         break;
 
     case SOCKET_STATUS_RESOLVE_ADDR_ERROR:
-        pwszText = L"The address could not be resolved.";
+        pwszText = SOCKTXT_RESOLVE_ADDR_ERROR;
         break;
 
     case SOCKET_STATUS_CREATE_SOCKET_FAIL:
-        pwszText = L"The socket could not be created.";
+        pwszText = SOCKTXT_CREATE_SOCKET_FAIL;
         break;
 
     case SOCKET_STATUS_CREATE_EVENT_FAIL:
-        pwszText = L"The network event could not be created.";
+        pwszText = SOCKTXT_CREATE_EVENT_FAIL;
         break;
 
     case SOCKET_STATUS_EVENT_SELECT_FAIL:
-        pwszText = L"The socket could not be bound to its event.";
+        pwszText = SOCKTXT_EVENT_SELECT_FAIL;
         break;
 
     case SOCKET_STATUS_BIND_ERROR:
-        pwszText = L"The address or port is unavailable.";
+        pwszText = SOCKTXT_BIND_ERROR;
         break;
 
     case SOCKET_STATUS_LISTEN_ERROR:
-        pwszText = L"The socket could not listen.";
+        pwszText = SOCKTXT_LISTEN_ERROR;
         break;
 
     case SOCKET_STATUS_ACCEPT_ERROR:
-        pwszText = L"The connection could not be accepted.";
+        pwszText = SOCKTXT_ACCEPT_ERROR;
         break;
 
     case SOCKET_STATUS_CONNECT_ERROR:
-        pwszText = L"The target refused the connection or is unreachable.";
+        pwszText = SOCKTXT_CONNECT_ERROR;
         break;
 
     case SOCKET_STATUS_TIMEOUT:
-        pwszText = L"The operation timed out.";
+        pwszText = SOCKTXT_TIMEOUT;
         break;
 
     case SOCKET_STATUS_ABORTED:
-        pwszText = L"The operation was cancelled.";
-        break;
-
-    case SOCKET_STATUS_CLOSED:
-        pwszText = L"The connection was closed.";
+        pwszText = SOCKTXT_ABORTED;
         break;
 
     default:

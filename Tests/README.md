@@ -4,7 +4,7 @@ End to end tests that drive the real `SnailNet.exe`.
 
 SnailNet ignores its command line, so there is no headless mode to target.
 This suite finds the window by class name, fills in the five relay fields,
-posts button clicks, and reads the status line back — then moves live TCP
+posts button clicks, and reads the status line back, then moves live TCP
 traffic through the relay and checks it on the far side. Nothing is stubbed
 and no object files are relinked.
 
@@ -27,6 +27,14 @@ poetry run pytest -m "not slow"          # skip the multi-megabyte transfers
 poetry run pytest tests/test_lifecycle.py
 poetry run pytest --exe ..\SnailNet\Build\x64\Debug\SnailNet.exe
 ```
+
+## Test reports
+
+Every run writes a JUnit XML report to `reports/junit.xml`, picked up
+automatically via `addopts` in `pyproject.toml`; no extra flag needed. It is
+a build artifact, gitignored, and overwritten on each run. This is the format
+a CI step would parse; for a human, the console output above is the more
+readable record.
 
 ## Layout
 

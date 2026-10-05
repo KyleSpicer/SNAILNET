@@ -20,7 +20,6 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
-#define SOCKET_IS_SUCCESS(Status) (SOCKET_STATUS_SUCCESS == (Status))
 #define SOCKET_IS_ERROR(Status) (SOCKET_STATUS_SUCCESS != (Status))
 
 /** Event mask applied to a connected socket. */
@@ -43,8 +42,7 @@ typedef enum _SOCKET_STATUS
     SOCKET_STATUS_ACCEPT_ERROR       = 11, /**< accept failed */
     SOCKET_STATUS_CONNECT_ERROR      = 12, /**< connect failed or refused */
     SOCKET_STATUS_TIMEOUT            = 13, /**< Wait expired */
-    SOCKET_STATUS_ABORTED            = 14, /**< Abort handle was signalled */
-    SOCKET_STATUS_CLOSED             = 15  /**< Peer closed the connection */
+    SOCKET_STATUS_ABORTED            = 14  /**< Abort handle was signalled */
 
 } SOCKET_STATUS,
     *PSOCKET_STATUS;

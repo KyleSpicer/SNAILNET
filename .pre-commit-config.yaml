@@ -47,6 +47,12 @@ repos:
       args:
         - "--disable=R"  # Disable refactoring (R)
         - "--enable=C0114,C0115,C0116" # enable docstring checks
+        # Pre-commit passes only the files in the commit, not their whole
+        # package, so a partial commit (e.g. editing tests/test_foo.py
+        # without touching snailnet_tests/) leaves pylint unable to resolve
+        # "import snailnet_tests" on its own. Pointing it at Tests/ directly
+        # is what makes that resolve regardless of which files are staged.
+        - "--init-hook=import sys; sys.path.insert(0, 'Tests')"
       # The hook runs in its own isolated environment, so anything the code
       # imports has to be named here or pylint reports it as E0401. The test
       # suite under Tests/ imports pytest.

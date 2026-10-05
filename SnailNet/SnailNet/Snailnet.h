@@ -51,7 +51,6 @@
 #define MSG_IDLE L"SnailNet Idle. No active connections."
 #define MSG_NEED_ADDRESSES L"Both addresses are required."
 #define MSG_BAD_LATENCY L"Latency must be a whole number of milliseconds."
-#define MSG_ADDR_TOO_LONG L"That address is too long."
 #define MSG_FAIL_REGISTER L"Failed to register the window class."
 #define MSG_FAIL_CREATE L"Failed to create the main window."
 #define MSG_FAIL_WINSOCK L"Winsock could not be initialised."
@@ -63,6 +62,11 @@
 
 #define FMT_BAD_PORT L"%s must be between %u and %u."
 #define FMT_START_FAILED L"Could not start: %s"
+
+// Converts a parsed port number back to text for RELAY_CONFIG. Printing the
+// parsed value rather than keeping the raw field strips whatever spacing the
+// user typed.
+#define FMT_PORT_TEXT L"%u"
 
 //
 // The status block is several lines. One line could not hold an address
@@ -79,7 +83,6 @@ typedef enum _SNAILNET_LIMITS
     PORT_MIN        = 1,
     PORT_MAX        = 65535,
     ADDR_CCH        = 64, // characters, not bytes
-    PORT_TEXT_CCH   = 8,
     STATUS_CCH      = 192,
     STATUS_LINE_CCH = 320, // status text plus the counters appended to it
     PORT_LABEL_CCH  = 128
@@ -118,8 +121,7 @@ typedef enum _SNAILNET_TAB_INDEX
 {
     TAB_RELAY = 0,
     TAB_HELP,
-    TAB_ABOUT,
-    TAB_COUNT
+    TAB_ABOUT
 } SNAILNET_TAB_INDEX,
     *PSNAILNET_TAB_INDEX;
 

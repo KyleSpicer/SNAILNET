@@ -62,30 +62,30 @@ typedef struct _RELAY_DIR
 /** @brief Per-client state handed to a session thread. */
 typedef struct _RELAY_SESSION
 {
-    SOCKET_CONN  Client;  /**< Accepted connection */
-    SOCKET_CONN  Target;  /**< Our connection to the target */
-    RELAY_CONFIG Config;  /**< Copy taken at start */
-    HWND         hNotify; /**< Window to post to. May be NULL */
+    SOCKET_CONN  Client; /**< Accepted connection */
+    SOCKET_CONN  Target; /**< Our connection to the target */
+    RELAY_CONFIG Config; /**< Copy taken at start */
 
 } RELAY_SESSION, *PRELAY_SESSION;
 
-static RELAY_CONFIG     g_Config                         = {0};
-static PSOCKET_CTX      g_pListener                      = NULL;
-static HANDLE           g_hAbort                         = NULL;
-static HANDLE           g_hAcceptThread                  = NULL;
-static HANDLE           g_ahSessions[RELAY_MAX_SESSIONS] = {0};
-static CRITICAL_SECTION g_SessionLock                    = {0};
-static BOOL             g_bSessionLockReady              = FALSE;
-static volatile LONG    g_lRunning                       = 0;
+static RELAY_CONFIG      g_Config                         = {0};
+static PSOCKET_CTX       g_pListener                      = NULL;
+static HANDLE            g_hAbort                         = NULL;
+static HANDLE            g_hAcceptThread                  = NULL;
+static HANDLE            g_ahSessions[RELAY_MAX_SESSIONS] = {0};
+static CRITICAL_SECTION  g_SessionLock                    = {0};
+static BOOL              g_bSessionLockReady              = FALSE;
+static volatile LONG     g_lRunning                       = 0;
+static RELAY_NOTIFY_PROC g_pfnNotify                      = NULL;
+static PVOID             g_pNotifyContext                 = NULL;
 
 /**
- * @brief Posts a notification when a window was supplied.
+ * @brief Reports a notification through the registered callback, if any.
  *
- * @param hNotify Window to post to. May be NULL.
- * @param Code    What happened.
- * @param lData   Code specific payload.
+ * @param Code  What happened.
+ * @param lData Code specific payload.
  */
-static VOID Notify(_In_opt_ HWND hNotify, _In_ RELAY_NOTIFY Code, _In_ LPARAM lData);
+static VOID Notify(_In_ RELAY_NOTIFY Code, _In_ LPARAM lData);
 
 /**
  * @brief Accepts clients until the abort event is signalled.
@@ -214,7 +214,9 @@ static BOOL DirectionIsDone(_In_opt_ CONST RELAY_DIR *pDir);
 static DWORD DirectionWaitMs(_In_opt_ CONST RELAY_DIR *pDir);
 
 SOCKET_STATUS
-RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify)
+RelayStart(_In_ CONST RELAY_CONFIG   *pConfig,
+           _In_opt_ RELAY_NOTIFY_PROC pfnNotify,
+           _In_opt_ PVOID             pNotifyContext)
 {
     SOCKET_STATUS SockStatus = SOCKET_STATUS_ERROR;
     DWORD         dwThreadId = 0;
@@ -238,6 +240,8 @@ RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify)
     bOwnsState = TRUE;
 
     CopyMemory(&g_Config, pConfig, sizeof(RELAY_CONFIG));
+    g_pfnNotify      = pfnNotify;
+    g_pNotifyContext = pNotifyContext;
 
     /* Before the listener takes the port. A bad target used to surface only
        when the first client connected, which made a dead configuration look
@@ -287,7 +291,7 @@ RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify)
        relay that is listening but not yet officially up. */
     InterlockedExchange(&g_lRunning, 1);
 
-    g_hAcceptThread = CreateThread(NULL, 0, AcceptThreadProc, (LPVOID)hNotify, 0, &dwThreadId);
+    g_hAcceptThread = CreateThread(NULL, 0, AcceptThreadProc, NULL, 0, &dwThreadId);
 
     if (NULL == g_hAcceptThread)
     {
@@ -296,7 +300,7 @@ RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify)
         goto EXIT_RELAY_START;
     }
 
-    Notify(hNotify, RELAY_NOTIFY_LISTENING, 0);
+    Notify(RELAY_NOTIFY_LISTENING, 0);
     SockStatus = SOCKET_STATUS_SUCCESS;
 
 EXIT_RELAY_START:
@@ -349,28 +353,26 @@ VOID RelayStop(VOID)
     }
 
     SecureZeroMemory(&g_Config, sizeof(g_Config));
+    g_pfnNotify      = NULL;
+    g_pNotifyContext = NULL;
     InterlockedExchange(&g_lRunning, 0);
 
     return;
 
 } /* RelayStop */
 
-BOOL RelayIsRunning(VOID)
+static VOID Notify(_In_ RELAY_NOTIFY Code, _In_ LPARAM lData)
 {
-    return (0 != InterlockedCompareExchange(&g_lRunning, 0, 0));
-
-} /* RelayIsRunning */
-
-static VOID Notify(_In_opt_ HWND hNotify, _In_ RELAY_NOTIFY Code, _In_ LPARAM lData)
-{
-    if (NULL == hNotify)
+    if (NULL == g_pfnNotify)
     {
         goto EXIT_NOTIFY;
     }
 
-    /* Post, never send. A worker that blocks on the UI thread while the UI
-       thread is inside RelayStop waiting on that worker is a deadlock. */
-    (VOID) PostMessageW(hNotify, WM_RELAY_NOTIFY, (WPARAM)Code, lData);
+    /* Called directly, never posted or queued: Relay.c has no thread of its
+       own to defer to, so the callback itself is what must not block. The
+       GUI's callback keeps the old guarantee by doing nothing but
+       PostMessageW; the CLI's does the same by doing nothing but print. */
+    g_pfnNotify(g_pNotifyContext, Code, lData);
 
 EXIT_NOTIFY:
 
@@ -382,10 +384,11 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
 {
     SOCKET_STATUS  SockStatus = SOCKET_STATUS_ERROR;
     PRELAY_SESSION pSession   = NULL;
-    HWND           hNotify    = (HWND)lpParameter;
     HANDLE         hThread    = NULL;
     LONG           lSlot      = -1;
     DWORD          dwThreadId = 0;
+
+    (VOID) lpParameter;
 
     for (;;)
     {
@@ -398,7 +401,7 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
 
         if (NULL == pSession)
         {
-            Notify(hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_BAD_MEMORY_ALLOC);
+            Notify(RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_BAD_MEMORY_ALLOC);
             break;
         }
 
@@ -426,12 +429,11 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
         {
             (VOID) HeapFree(GetProcessHeap(), 0, pSession);
             pSession = NULL;
-            Notify(hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SockStatus);
+            Notify(RELAY_NOTIFY_ERROR, (LPARAM)SockStatus);
             break;
         }
 
         CopyMemory(&pSession->Config, &g_Config, sizeof(RELAY_CONFIG));
-        pSession->hNotify = hNotify;
 
         /* Find the slot before spawning. Refusing a client we cannot track is
            better than starting a thread we would have to kill, and this is
@@ -443,7 +445,7 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
             SocketConnClose(&pSession->Client);
             (VOID) HeapFree(GetProcessHeap(), 0, pSession);
             pSession = NULL;
-            Notify(hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_ERROR);
+            Notify(RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_ERROR);
             continue;
         }
 
@@ -455,7 +457,7 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
             SocketConnClose(&pSession->Client);
             (VOID) HeapFree(GetProcessHeap(), 0, pSession);
             pSession = NULL;
-            Notify(hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_ERROR);
+            Notify(RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_ERROR);
             continue;
         }
 
@@ -468,7 +470,7 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
     }
 
     SessionTableJoinAll();
-    Notify(hNotify, RELAY_NOTIFY_STOPPED, 0);
+    Notify(RELAY_NOTIFY_STOPPED, 0);
 
     return 0;
 
@@ -494,15 +496,15 @@ static DWORD WINAPI SessionThreadProc(_In_ LPVOID lpParameter)
     {
         /* The client is already connected to us, so a dead target has to be
            reported and dropped rather than left hanging. */
-        Notify(pSession->hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SockStatus);
+        Notify(RELAY_NOTIFY_ERROR, (LPARAM)SockStatus);
         goto EXIT_SESSION_THREAD;
     }
 
-    Notify(pSession->hNotify, RELAY_NOTIFY_ACCEPTED, 0);
+    Notify(RELAY_NOTIFY_ACCEPTED, 0);
 
     SessionPump(pSession);
 
-    Notify(pSession->hNotify, RELAY_NOTIFY_CLOSED, 0);
+    Notify(RELAY_NOTIFY_CLOSED, 0);
 
 EXIT_SESSION_THREAD:
 
@@ -540,7 +542,7 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
 
     if (NULL == pbScratch)
     {
-        Notify(pSession->hNotify, RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_BAD_MEMORY_ALLOC);
+        Notify(RELAY_NOTIFY_ERROR, (LPARAM)SOCKET_STATUS_BAD_MEMORY_ALLOC);
         goto EXIT_PUMP;
     }
 
