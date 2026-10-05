@@ -29,7 +29,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "furo"
 
 # Document members in source order rather than alphabetically. These classes
-# read as a lifecycle — launch, configure, inspect, close — and sorting them
+# read as a lifecycle (launch, configure, inspect, close) and sorting them
 # by name scatters that.
 autodoc_member_order = "bysource"
 

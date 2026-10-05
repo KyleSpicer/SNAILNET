@@ -15,6 +15,7 @@ tests and read the output, the first three sections are enough.
 - [What you need installed](#what-you-need-installed)
 - [Build and test in five commands](#build-and-test-in-five-commands)
 - [Reading the results](#reading-the-results)
+- [The JUnit XML report](#the-junit-xml-report)
 - [How the suite works](#how-the-suite-works)
 - [What each test proves](#what-each-test-proves)
 - [Running part of the suite](#running-part-of-the-suite)
@@ -95,16 +96,19 @@ windows while the suite is running.
 A full run takes about 40 seconds and ends like this:
 
 ```
-tests/test_correctness.py::test_roundtrip_is_byte_exact PASSED            [  3%]
-tests/test_correctness.py::test_latency_applies_one_way PASSED            [  7%]
-tests/test_correctness.py::test_large_delayed_download_is_whole PASSED    [ 10%]
+tests/test_correctness.py::test_roundtrip_is_byte_exact PASSED            [  2%]
+tests/test_correctness.py::test_latency_applies_one_way PASSED            [  5%]
+tests/test_correctness.py::test_large_delayed_download_is_whole PASSED    [  7%]
 ...
-tests/test_validation.py::test_zero_latency_is_accepted PASSED            [100%]
+tests/test_cli.py::test_ctrl_c_stops_cleanly SKIPPED (...no console...) [100%]
 
-======================= 28 passed in 40.23s =======================
+================= 41 passed, 1 skipped in 42.03s =================
 ```
 
-`28 passed` is what you want. Anything else needs reading.
+`41 passed` is what you want. A `skipped` alongside it is expected if the
+environment running the suite has no console of its own; see
+[Command line mode: `test_cli.py`](#command-line-mode-test_clipy). Anything
+else needs reading.
 
 ### The words in the output
 
@@ -113,8 +117,8 @@ tests/test_validation.py::test_zero_latency_is_accepted PASSED            [100%]
 | `PASSED` | The test's checks all held |
 | `FAILED` | A check did not hold. Something is wrong with SnailNet, or with the test |
 | `ERROR` | The test could not run at all, usually a setup problem such as a missing executable |
-| `SKIPPED` | The test was deliberately not run, for example by `-m "not slow"` |
-| `28 passed` | Count of tests, not of checks. Most tests make several assertions |
+| `SKIPPED` | The test was deliberately not run. `-m "not slow"` does this on purpose; `test_ctrl_c_stops_cleanly` does it on its own when there is no console to test through |
+| `41 passed` | Count of tests, not of checks. Most tests make several assertions |
 
 The `[ 42%]` on the right is progress through the run, nothing more.
 
@@ -138,9 +142,9 @@ tests\test_correctness.py:77: AssertionError
 
 Read it bottom up:
 
-1. **`tests\test_correctness.py:77`** — where the check lives.
-2. **`assert 1499.5 < 400`** — the comparison that failed, with real numbers.
-3. **The message** — what that means in plain terms. Here, traffic heading
+1. **`tests\test_correctness.py:77`**: where the check lives.
+2. **`assert 1499.5 < 400`**: the comparison that failed, with real numbers.
+3. **The message**: what that means in plain terms. Here, traffic heading
    *to* the target was delayed by 1.5 seconds when it should not have been
    delayed at all. SnailNet's delay is supposed to apply in one direction
    only, so this says the delay is being applied in both.
@@ -158,6 +162,19 @@ E   Latency: 100 ms to client | Error: The target refused the connection'
 ```
 
 That is SnailNet's own status text, captured at the moment the test gave up.
+
+## The JUnit XML report
+
+Every run also writes `Tests/reports/junit.xml`, picked up automatically:
+nothing extra to pass on the command line. It is a build artifact rather than
+something to read by eye: one `<testcase>` element per test, with a
+`<failure>` child and the same message you saw in the console for anything
+that failed. This is the format most CI systems and test result viewers
+understand natively, which is the point of it; for a person, the console
+output above is still the more readable record of a run.
+
+The file is overwritten on every run and is gitignored, so it never needs
+committing or cleaning up by hand.
 
 ## How the suite works
 
@@ -185,11 +202,13 @@ on loopback, points SnailNet at them, and measures what actually arrives.
 | Path | What it does |
 |---|---|
 | `Tests/snailnet_tests/app.py` | Launches and drives one instance through its window |
+| `Tests/snailnet_tests/cli.py` | Launches one instance in headless mode and reads its stdout/stderr/exit code |
 | `Tests/snailnet_tests/servers.py` | Echo, source, and sink servers for SnailNet to relay to |
 | `Tests/snailnet_tests/support.py` | Ports, test payloads, stream readers |
 | `Tests/tests/test_correctness.py` | Does the right data arrive, at the right time |
 | `Tests/tests/test_lifecycle.py` | Start, stop, restart, and error reporting |
 | `Tests/tests/test_validation.py` | Bad input is refused |
+| `Tests/tests/test_cli.py` | Argument parsing, the relay via the command line, and Ctrl+C shutdown |
 
 ### Two details worth knowing
 
@@ -209,7 +228,7 @@ here because they are easy to reintroduce.
 
 ## What each test proves
 
-### Correctness — `test_correctness.py`
+### Correctness: `test_correctness.py`
 
 | Test | What it proves |
 |---|---|
@@ -221,7 +240,7 @@ here because they are easy to reintroduce.
 | `concurrent_sessions_do_not_cross` | 20 clients at once each get their own stream. Each sends different data, so mixed-up buffers fail the checksum |
 | `slow_client_still_gets_every_byte` | A client reading slower than the server sends still gets everything, with the relay held against a full send buffer throughout |
 
-### Lifecycle — `test_lifecycle.py`
+### Lifecycle: `test_lifecycle.py`
 
 | Test | What it proves |
 |---|---|
@@ -231,7 +250,7 @@ here because they are easy to reintroduce.
 | `dead_target_is_reported` | A target that is not listening is reported, and the client is dropped rather than left waiting |
 | `bind_conflict_is_reported` | A port another program holds is reported, not half started |
 
-### Validation — `test_validation.py`
+### Validation: `test_validation.py`
 
 Fourteen bad inputs, each of which must leave the relay idle: ports of 0,
 65536 and 999999, non-numeric and empty ports, blank addresses, non-numeric
@@ -241,6 +260,26 @@ bound.
 Two tests then confirm the checks are not simply refusing everything:
 port 65535 is accepted (so the range check is not off by one), and a latency
 of zero is accepted (it turns SnailNet into a plain relay).
+
+### Command line mode: `test_cli.py`
+
+| Test | What it proves |
+|---|---|
+| `help_prints_usage_and_exits_clean` | `--help` documents every flag and starts nothing |
+| `help_aliases_match_long_form` | `-h` and `-?` behave the same as `--help` |
+| `bad_argument_is_rejected` | An unknown flag, a missing value, an out of range or non-numeric port, and bad latency are all reported on stderr with a non-zero exit, never a half start |
+| `blank_address_is_rejected` | An address that is explicitly empty is refused, not quietly treated as a default |
+| `relay_works_and_reports_sessions` | A real session through the CLI is byte exact, delayed one way, and the session start/end is printed with live counts |
+| `omitted_flags_use_the_gui_defaults` | Leaving a flag out falls back to the same default the GUI pre-fills, confirmed by timing, not just by reading the help text |
+| `ctrl_c_stops_cleanly` | Ctrl+C drains and stops the relay the same way the GUI's Stop button does |
+
+`ctrl_c_stops_cleanly` needs a real console to send a real Ctrl+C through
+(`GenerateConsoleCtrlEvent` is silently a no-op without one), which the
+process running the suite does not always have: a background task runner
+or certain CI setups can lack one entirely. The test checks for this itself
+and skips rather than hangs; the shutdown path was confirmed by hand against
+a real console during development. See
+[DeveloperGuide.md](DeveloperGuide.md#command-line-mode) for the detail.
 
 ## Running part of the suite
 

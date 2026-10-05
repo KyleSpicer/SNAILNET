@@ -8,6 +8,9 @@ side. That is what this package provides.
 :mod:`snailnet_tests.app`
     Drives one running ``SnailNet.exe`` through its window handle.
 
+:mod:`snailnet_tests.cli`
+    Drives one running ``SnailNet.exe`` in headless command line mode.
+
 :mod:`snailnet_tests.servers`
     Throwaway TCP servers that stand in for whatever the relay forwards to.
 
@@ -19,16 +22,19 @@ here passed against the executable.
 """
 
 from snailnet_tests.app import SnailNet
+from snailnet_tests.cli import CliProcess, has_console
 from snailnet_tests.servers import EchoServer, SinkServer, SourceServer
 from snailnet_tests.support import digest_of, free_port, payload, read_to_eof
 
 __all__ = [
+    "CliProcess",
     "EchoServer",
     "SinkServer",
     "SnailNet",
     "SourceServer",
     "digest_of",
     "free_port",
+    "has_console",
     "payload",
     "read_to_eof",
 ]

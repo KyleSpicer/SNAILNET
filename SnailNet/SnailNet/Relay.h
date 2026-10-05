@@ -15,8 +15,11 @@
  * instead would add the same latency but would also cap throughput at one
  * buffer per interval, which is not what a network delay looks like.
  *
- * Workers never touch a control. They report progress with PostMessageW, so
- * the UI thread stays the only thread that owns the window.
+ * Workers never touch a control, and this module knows nothing about
+ * windows or consoles. They report progress through a caller supplied
+ * RELAY_NOTIFY_PROC callback instead, so the same engine serves the GUI
+ * (which posts a message and returns) and the CLI (which prints and
+ * returns) without either knowing about the other.
  */
 
 #pragma once
@@ -72,6 +75,24 @@ typedef enum _RELAY_NOTIFY
     *PRELAY_NOTIFY;
 
 /**
+ * @brief Callback a relay uses to report progress.
+ *
+ * @details Called directly from whichever worker thread has the news (the
+ * accept thread for RELAY_NOTIFY_LISTENING and RELAY_NOTIFY_STOPPED, a
+ * session thread for everything else), never posted or queued. The
+ * callback must not block: it is the caller's one chance to hop to
+ * whatever thread or output it owns, the same way the GUI's implementation
+ * only calls PostMessageW and returns.
+ *
+ * @param pContext Opaque value passed through unchanged from RelayStart.
+ * @param Code     What happened.
+ * @param lData    Code specific payload.
+ */
+typedef VOID(CALLBACK *RELAY_NOTIFY_PROC)(_In_opt_ PVOID    pContext,
+                                          _In_ RELAY_NOTIFY Code,
+                                          _In_ LPARAM       lData);
+
+/**
  * @brief Everything a relay needs to run.
  *
  * @details Ports are kept as text because the resolver wants text, and
@@ -93,13 +114,18 @@ typedef struct _RELAY_CONFIG
  * @details Returns once the socket is listening, so a bind failure reaches the
  * caller as a status code rather than a notification.
  *
- * @param pConfig Configuration to copy. Not referenced after this returns.
- * @param hNotify Window that receives WM_RELAY_NOTIFY. May be NULL.
+ * @param pConfig         Configuration to copy. Not referenced after this
+ *                        returns.
+ * @param pfnNotify       Callback for progress reports. May be NULL.
+ * @param pNotifyContext  Opaque value passed back to pfnNotify unchanged.
+ *                        Meaningful only together with pfnNotify.
  *
  * @return SOCKET_STATUS_SUCCESS on success, error code on failure.
  */
 SOCKET_STATUS
-RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify);
+RelayStart(_In_ CONST RELAY_CONFIG   *pConfig,
+           _In_opt_ RELAY_NOTIFY_PROC pfnNotify,
+           _In_opt_ PVOID             pNotifyContext);
 
 /**
  * @brief Signals every worker and waits for them to exit.
@@ -108,12 +134,5 @@ RelayStart(_In_ CONST RELAY_CONFIG *pConfig, _In_opt_ HWND hNotify);
  * the last session thread is gone, so it must not be called from a worker.
  */
 VOID RelayStop(VOID);
-
-/**
- * @brief Reports whether the relay is currently listening.
- *
- * @return TRUE between a successful RelayStart and a RelayStop.
- */
-BOOL RelayIsRunning(VOID);
 
 /* end of file */

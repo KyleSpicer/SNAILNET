@@ -2,30 +2,42 @@
  * @file Main.c
  * @brief Entry point for SnailNet.
  *
- * Brings Winsock up, creates the main window, and runs the message loop.
- * Everything else lives in Ui.c, Commands.c, and Relay.c.
+ * SnailNet is a console application: Windows will not let a GUI subsystem
+ * executable do ordinary stdio (printf, piping, redirection) without
+ * calling AttachConsole and re-opening the standard handles by hand, and
+ * that plumbing has real edge cases of its own around redirected and
+ * piped output. Being a console application sidesteps all of that for
+ * the CLI path, at the cost of a brief console window flash on every
+ * launch; see RunGui.
+ *
+ * With any argument at all, SnailNet runs headlessly; see Cli.c. With
+ * none, it launches its GUI; everything that needs lives in Ui.c,
+ * Commands.c, and Relay.c.
  */
 
 #include <WinSock2.h>
 #include <Windows.h>
 
+#include <stdio.h>
+
+#include "Cli.h"
 #include "Relay.h"
 #include "Snailnet.h"
 #include "Sockets.h"
 #include "Ui.h"
 
-INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
-                    _In_opt_ HINSTANCE hPrev,
-                    _In_ PWSTR         pszCmdLine,
-                    _In_ INT           iShowCommand)
+/**
+ * @brief Runs the GUI: creates the main window and its message loop.
+ *
+ * @return Process exit code.
+ */
+static INT RunGui(VOID);
+
+INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
 {
     SOCKET_STATUS SockStatus = SOCKET_STATUS_ERROR;
-    HWND          hWindow    = NULL;
-    MSG           Message    = {0};
     INT           iStatus    = SNAILNET_SUCCESS;
-
-    (VOID) hPrev;
-    (VOID) pszCmdLine;
+    BOOL          bCliMode   = (1 < argc);
 
     /* Once for the process. The relay starts and stops many times over a
        session and should not be reference counting Winsock on each pass. */
@@ -33,15 +45,48 @@ INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
 
     if (SOCKET_IS_ERROR(SockStatus))
     {
-        MessageBoxW(NULL, MSG_FAIL_WINSOCK, PROJ_NAME, MB_ICONERROR);
+        if (bCliMode)
+        {
+            fwprintf(stderr, L"%s\n", MSG_FAIL_WINSOCK);
+        }
+        else
+        {
+            MessageBoxW(NULL, MSG_FAIL_WINSOCK, PROJ_NAME, MB_ICONERROR);
+        }
+
         return SNAILNET_FAIL_WINSOCK;
     }
 
-    hWindow = WindowCreate(hInstance, iShowCommand, &iStatus);
+    if (bCliMode)
+    {
+        iStatus = CliRun(argc, argv);
+    }
+    else
+    {
+        iStatus = RunGui();
+    }
+
+    SocketLibCleanup();
+
+    return iStatus;
+
+} /* wmain */
+
+static INT RunGui(VOID)
+{
+    HWND hWindow = NULL;
+    MSG  Message = {0};
+    INT  iStatus = SNAILNET_SUCCESS;
+
+    /* Every launch gets a console now, even one headed for the GUI. Hidden
+       immediately so a double click from Explorer still ends up looking
+       like a plain GUI app once past an unavoidable, brief flash. */
+    (VOID) ShowWindow(GetConsoleWindow(), SW_HIDE);
+
+    hWindow = WindowCreate(GetModuleHandleW(NULL), SW_SHOWDEFAULT, &iStatus);
 
     if (NULL == hWindow)
     {
-        SocketLibCleanup();
         return iStatus;
     }
 
@@ -58,10 +103,9 @@ INT WINAPI wWinMain(_In_ HINSTANCE     hInstance,
     /* WM_DESTROY already did this. Repeating it costs nothing and covers the
        paths that leave the loop without going through the window procedure. */
     RelayStop();
-    SocketLibCleanup();
 
     return (INT)Message.wParam;
 
-} /* wWinMain */
+} /* RunGui */
 
 /* end of file */

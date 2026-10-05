@@ -40,16 +40,16 @@ them for a quick pass:
 What is covered
 ---------------
 
-**Correctness** — byte-exact round trips; the delay applying one way only,
+**Correctness**: byte-exact round trips; the delay applying one way only,
 measured in both directions; multi-megabyte transfers past the 1 MB queue
 cap in each direction; half close propagation; concurrent sessions not
 crossing streams.
 
-**Lifecycle** — Stop returning to idle and genuinely releasing the port;
+**Lifecycle**: Stop returning to idle and genuinely releasing the port;
 repeated start and stop on the same port; Stop with a transfer in flight; a
 dead target and a bind conflict both being reported.
 
-**Validation** — out of range and non-numeric ports, bad and negative
+**Validation**: out of range and non-numeric ports, bad and negative
 latency, blank and unresolvable addresses, plus the boundary cases that a
 blanket refusal would otherwise hide.
 

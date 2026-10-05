@@ -106,7 +106,7 @@ def test_valid_boundary_ports_are_accepted(app, ports):
 def test_zero_latency_is_accepted(app, ports):
     """A latency of zero is valid and starts the relay.
 
-    Zero is a legitimate setting — it turns SnailNet into a plain relay — and
+    Zero is a legitimate setting (it turns SnailNet into a plain relay) and
     is easy to reject accidentally alongside the blank field.
     """
     app.configure("127.0.0.1", ports.listen, "127.0.0.1", ports.target, 0)

@@ -52,6 +52,22 @@ static VOID RefreshStatus(_In_opt_ HWND hWindow);
 static BOOL
 ReadPort(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_opt_z_ PCWSTR pszName, _Out_opt_ PUINT puPort);
 
+/**
+ * @brief Relay notify callback that forwards to the window as WM_RELAY_NOTIFY.
+ *
+ * @details The whole of this module's binding to Relay.c's generic
+ * RELAY_NOTIFY_PROC: it does nothing but post, so it keeps the same
+ * non-blocking guarantee the old direct PostMessageW call had, and the UI
+ * thread is still the only thread that ever touches a control.
+ *
+ * @param pContext Main window handle, cast back from PVOID.
+ * @param Code     What happened.
+ * @param lData    Code specific payload.
+ */
+static VOID CALLBACK GuiNotifyProc(_In_opt_ PVOID    pContext,
+                                   _In_ RELAY_NOTIFY Code,
+                                   _In_ LPARAM       lData);
+
 VOID OnStart(_In_opt_ HWND hWindow)
 {
     RELAY_CONFIG  Config                     = {0};
@@ -101,15 +117,15 @@ VOID OnStart(_In_opt_ HWND hWindow)
        the user typed. */
     (VOID) StringCchCopyW(Config.wszListenAddr, RELAY_ADDR_CCH, szListenAddr);
     (VOID) StringCchCopyW(Config.wszTargetAddr, RELAY_ADDR_CCH, szTargetAddr);
-    (VOID) StringCchPrintfW(Config.wszListenPort, RELAY_PORT_CCH, L"%u", uListenPort);
-    (VOID) StringCchPrintfW(Config.wszTargetPort, RELAY_PORT_CCH, L"%u", uTargetPort);
+    (VOID) StringCchPrintfW(Config.wszListenPort, RELAY_PORT_CCH, FMT_PORT_TEXT, uListenPort);
+    (VOID) StringCchPrintfW(Config.wszTargetPort, RELAY_PORT_CCH, FMT_PORT_TEXT, uTargetPort);
 
     Config.dwLatencyMs = (DWORD)uLatencyMs;
 
     g_uActive = 0;
     g_uTotal  = 0;
 
-    SockStatus = RelayStart(&Config, hWindow);
+    SockStatus = RelayStart(&Config, GuiNotifyProc, (PVOID)hWindow);
 
     if (SOCKET_IS_ERROR(SockStatus))
     {
@@ -332,5 +348,26 @@ EXIT_READ_PORT:
     return bResult;
 
 } /* ReadPort */
+
+static VOID CALLBACK GuiNotifyProc(_In_opt_ PVOID    pContext,
+                                   _In_ RELAY_NOTIFY Code,
+                                   _In_ LPARAM       lData)
+{
+    HWND hWindow = (HWND)pContext;
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_GUI_NOTIFY;
+    }
+
+    /* Post, never send. A worker that blocks on the UI thread while the UI
+       thread is inside RelayStop waiting on that worker is a deadlock. */
+    (VOID) PostMessageW(hWindow, WM_RELAY_NOTIFY, (WPARAM)Code, lData);
+
+EXIT_GUI_NOTIFY:
+
+    return;
+
+} /* GuiNotifyProc */
 
 /* end of file */

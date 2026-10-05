@@ -108,8 +108,8 @@ def app_fixture(exe_path: str) -> Iterator[SnailNet]:
 def assert_started(app: SnailNet) -> None:
     """Fails with the status line when the relay did not start.
 
-    The status line carries the actual reason — a bind conflict, an
-    unresolvable target — so a bare "did not start" wastes the one piece of
+    The status line carries the actual reason (a bind conflict, an
+    unresolvable target), so a bare "did not start" wastes the one piece of
     diagnostic the application offers.
 
     :param app: The application that was asked to start.

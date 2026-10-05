@@ -15,6 +15,13 @@ Driving the application
    :members:
    :show-inheritance:
 
+Driving the command line
+-------------------------
+
+.. automodule:: snailnet_tests.cli
+   :members:
+   :show-inheritance:
+
 Test servers
 ------------
 

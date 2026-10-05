@@ -39,7 +39,10 @@ furo = "^2024.8.6"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --strict-markers --durations=10"
+# JUnit XML lands in reports/, gitignored: a build artifact, not something
+# to commit. It is the standard format a CI step would parse; for a human,
+# the console output above is still the more readable record of a run.
+addopts = "-v --strict-markers --durations=10 --junitxml=reports/junit.xml"
 markers = [
     "slow: moves multiple megabytes or waits out a long delay",
 ]

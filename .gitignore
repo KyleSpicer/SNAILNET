@@ -67,3 +67,6 @@ venv/
 # Sphinx build output
 docs/_build/
 Tests/docs/_build/
+
+# Test run artifacts
+Tests/reports/
