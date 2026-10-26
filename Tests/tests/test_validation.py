@@ -78,7 +78,9 @@ def test_bad_input_is_refused(
         f"status {app.status_line()!r}"
     )
     assert app.alive, f"{label}: the application died"
-    assert app.status_line(), f"{label}: nothing was reported on the status line"
+    # The status line is never empty (it starts on the idle message), so
+    # what matters is that the refusal replaced it.
+    assert "Idle" not in app.status_line(), f"{label}: the refusal was not reported"
 
 
 def test_valid_boundary_ports_are_accepted(app, ports):

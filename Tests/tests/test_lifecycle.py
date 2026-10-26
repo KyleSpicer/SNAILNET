@@ -6,7 +6,6 @@ port, or going quiet about a failure.
 """
 
 import socket
-import time
 
 import pytest
 from conftest import assert_started
@@ -107,8 +106,6 @@ def test_dead_target_is_reported(app, ports):
     app.start()
     assert_started(app)
 
-    before = app.status_line()
-
     with connect(ports.listen) as client:
         client.settimeout(25.0)
 
@@ -120,8 +117,10 @@ def test_dead_target_is_reported(app, ports):
         except ConnectionResetError:
             pass  # An abortive close is an acceptable way to say no.
 
-    status = app.wait_status(lambda text: text != before, timeout=15)
-    assert status != before, f"the failure was never reported; status still {status!r}"
+    # Matched on the error itself: the session counters also change the
+    # status when the client arrives, so "it changed" proves nothing.
+    status = app.wait_status(lambda text: "Error:" in text, timeout=15)
+    assert "Error:" in status, f"the failure was never reported; status {status!r}"
     assert app.alive, "the application died on a refused target"
 
 
@@ -135,13 +134,13 @@ def test_bind_conflict_is_reported(app, ports):
     try:
         app.configure("127.0.0.1", taken, "127.0.0.1", ports.target, 0)
         app.start()
-        time.sleep(1.0)
+        status = app.wait_status(lambda text: "Could not start" in text)
 
         assert not app.running, (
             f"the relay claims to be listening on a port held elsewhere; "
-            f"status {app.status_line()!r}"
+            f"status {status!r}"
         )
         assert app.alive, "the application died on a bind conflict"
-        assert app.status_line(), "the bind conflict produced no status text at all"
+        assert "Could not start" in status, f"conflict not reported; status {status!r}"
     finally:
         holder.close()

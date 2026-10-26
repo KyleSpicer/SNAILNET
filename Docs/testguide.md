@@ -1,81 +1,35 @@
 <p align="center">
-  <img src="Images/snailnet-color.png" alt="SnailNet" width="300">
+  <img src="image.png" alt="SnailNet" width="300">
 </p>
 
 # SnailNet Test Guide
 
-How to get the code, run the test suite, and understand what it tells you.
+How to run the test suite and understand what it tells you.
 
 No prior knowledge of the test suite is assumed. If you only want to run the
-tests and read the output, the first three sections are enough.
+tests and read the output, the first two sections are enough.
 
 ## Table of Contents
 
-- [Getting the code](#getting-the-code)
-- [What you need installed](#what-you-need-installed)
-- [Build and test in five commands](#build-and-test-in-five-commands)
+- [Building and running](#building-and-running)
 - [Reading the results](#reading-the-results)
-- [The JUnit XML report](#the-junit-xml-report)
 - [How the suite works](#how-the-suite-works)
 - [What each test proves](#what-each-test-proves)
 - [Running part of the suite](#running-part-of-the-suite)
 - [When something fails](#when-something-fails)
 - [API documentation](#api-documentation)
+- [Keeping the suite healthy](#keeping-the-suite-healthy)
 
-## Getting the code
+## Building and running
 
-```console
-git clone git@gitea.com:4-Projects/SNAILNET.git
-cd SNAILNET
-```
-
-If you have not set up an SSH key with Gitea, clone over HTTPS instead:
-
-```console
-git clone https://gitea.com/4-Projects/SNAILNET.git
-cd SNAILNET
-```
-
-To work on a specific branch rather than `main`:
+Clone and build SnailNet as in the README's
+[Quick start](../README.md#quick-start), which also lists the tools you need.
+Visual Studio is needed even if you only care about the tests: the suite
+drives the real binary, so one has to exist. Then, from `Tests`:
 
 ```console
-git fetch origin
-git switch 6-testing
-```
-
-## What you need installed
-
-| Tool | Why | Check it |
-|---|---|---|
-| Visual Studio 2026, **Desktop development with C++** | Builds `SnailNet.exe`. The tests drive the real binary, so one has to exist | Open `SnailNet/SnailNet.slnx` |
-| Python 3.11 or newer | Runs the test suite | `python --version` |
-| [Poetry](https://python-poetry.org/docs/#installation) | Installs the suite's dependencies into its own virtual environment | `poetry --version` |
-
-No other dependencies. The suite talks to Windows directly through `ctypes`,
-and SnailNet itself links only against the Windows SDK.
-
-**Windows only.** The suite drives a Win32 window through `user32.dll`, so it
-does not run on Linux or macOS.
-
-## Build and test in five commands
-
-From the repository root:
-
-```console
-cd SnailNet
-msbuild SnailNet.slnx /p:Configuration=Release /p:Platform=x64
-cd ..\Tests
 poetry install
 poetry run pytest
-```
-
-If `msbuild` is not on your `PATH`, either build from inside Visual Studio
-(Ctrl+Shift+B with the configuration set to **x64 Release**), or use the full
-path:
-
-```console
-& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
-    SnailNet.slnx /p:Configuration=Release /p:Platform=x64
 ```
 
 The suite expects the executable at
@@ -86,6 +40,10 @@ there:
 poetry run pytest --exe ..\SnailNet\Build\x64\Debug\SnailNet.exe
 ```
 
+**Windows only.** The suite drives a Win32 window through `user32.dll`, so it
+does not run on Linux or macOS. It has no runtime dependencies of its own; it
+talks to Windows directly through `ctypes`.
+
 **Windows will show SnailNet's window opening and closing repeatedly while the
 tests run.** That is the suite working, not a fault. It launches a fresh copy
 of the application for each test and closes it afterwards. Do not click on the
@@ -93,20 +51,20 @@ windows while the suite is running.
 
 ## Reading the results
 
-A full run takes about 40 seconds and ends like this:
+A full run takes about 45 seconds and ends like this:
 
-```
-tests/test_correctness.py::test_roundtrip_is_byte_exact PASSED            [  2%]
-tests/test_correctness.py::test_latency_applies_one_way PASSED            [  5%]
-tests/test_correctness.py::test_large_delayed_download_is_whole PASSED    [  7%]
+```text
+tests/test_cli.py::test_help_prints_usage_and_exits_clean PASSED          [  2%]
+tests/test_cli.py::test_help_aliases_match_long_form[-h] PASSED           [  4%]
 ...
-tests/test_cli.py::test_ctrl_c_stops_cleanly SKIPPED (...no console...) [100%]
+tests/test_validation.py::test_zero_latency_is_accepted PASSED            [100%]
 
-================= 41 passed, 1 skipped in 42.03s =================
+========================= 42 passed in 43.80s =========================
 ```
 
-`41 passed` is what you want. A `skipped` alongside it is expected if the
-environment running the suite has no console of its own; see
+`42 passed` is what you want. Run from a terminal without a console of its
+own (some task runners and CI setups), it is `41 passed, 1 skipped` instead,
+which is also fine; see
 [Command line mode: `test_cli.py`](#command-line-mode-test_clipy). Anything
 else needs reading.
 
@@ -117,8 +75,8 @@ else needs reading.
 | `PASSED` | The test's checks all held |
 | `FAILED` | A check did not hold. Something is wrong with SnailNet, or with the test |
 | `ERROR` | The test could not run at all, usually a setup problem such as a missing executable |
-| `SKIPPED` | The test was deliberately not run. `-m "not slow"` does this on purpose; `test_ctrl_c_stops_cleanly` does it on its own when there is no console to test through |
-| `41 passed` | Count of tests, not of checks. Most tests make several assertions |
+| `SKIPPED` | The test was deliberately not run. `-m "not slow"` does this on purpose; `test_console_signal_stops_cleanly` does it on its own when there is no console to test through |
+| `42 passed` | Count of tests, not of checks. Most tests make several assertions |
 
 The `[ 42%]` on the right is progress through the run, nothing more.
 
@@ -126,7 +84,7 @@ The `[ 42%]` on the right is progress through the run, nothing more.
 
 A failure prints the test, the code around it, and the reason:
 
-```
+```text
 ____________________ test_latency_applies_one_way ____________________
 
 >       assert inbound_ms < 400, (
@@ -155,7 +113,7 @@ without needing to open the test.
 
 Where the relay reports a reason of its own, the failure includes it:
 
-```
+```text
 E  AssertionError: received 0 bytes of 8388608; relay reported
 E  'Listening on: 127.0.0.1:8151 | Forwarding to: 127.0.0.1:8152 |
 E   Latency: 100 ms to client | Error: The target refused the connection'
@@ -163,26 +121,16 @@ E   Latency: 100 ms to client | Error: The target refused the connection'
 
 That is SnailNet's own status text, captured at the moment the test gave up.
 
-## The JUnit XML report
-
-Every run also writes `Tests/reports/junit.xml`, picked up automatically:
-nothing extra to pass on the command line. It is a build artifact rather than
-something to read by eye: one `<testcase>` element per test, with a
-`<failure>` child and the same message you saw in the console for anything
-that failed. This is the format most CI systems and test result viewers
-understand natively, which is the point of it; for a person, the console
-output above is still the more readable record of a run.
-
-The file is overwritten on every run and is gitignored, so it never needs
-committing or cleaning up by hand.
+If a CI system or test viewer needs a machine-readable record, add
+`--junitxml=reports/junit.xml` to the command; nothing is written by default.
 
 ## How the suite works
 
-SnailNet is a window with five fields and two buttons. It has no command
-line, so there is no way to run it headlessly and no API to call.
+SnailNet has two front ends, a window and a command line, over the same
+relay. It has no API to call, so the suite **drives the real application
+the way a person or a script would**, through both.
 
-The suite therefore **drives the real application the way a person would**.
-For each test it:
+For the window (`app.py`), each test:
 
 1. Launches `SnailNet.exe`.
 2. Finds its window and waits for the controls to exist.
@@ -191,6 +139,10 @@ For each test it:
 5. Opens real TCP connections through the relay and checks what comes out
    the other side.
 6. Presses **Stop** and closes the application.
+
+For the command line (`cli.py`), each test launches `SnailNet.exe` with
+arguments, reads its stdout and stderr, and checks the exit code, moving
+real traffic through it the same way where the test calls for it.
 
 Nothing is simulated. There is no mock relay and no relinking of SnailNet's
 object files into a test program. The suite stands up throwaway TCP servers
@@ -208,23 +160,14 @@ on loopback, points SnailNet at them, and measures what actually arrives.
 | `Tests/tests/test_correctness.py` | Does the right data arrive, at the right time |
 | `Tests/tests/test_lifecycle.py` | Start, stop, restart, and error reporting |
 | `Tests/tests/test_validation.py` | Bad input is refused |
-| `Tests/tests/test_cli.py` | Argument parsing, the relay via the command line, and Ctrl+C shutdown |
+| `Tests/tests/test_cli.py` | Argument parsing, the relay via the command line, and shutdown on a console signal |
 
-### Two details worth knowing
+### Two details that are easy to break
 
-**Field values are set with window messages, not `SetDlgItemText`.** Across a
-process boundary, `SetWindowText` updates a cached copy of the window text
-that the edit control itself ignores. A test using it reads back exactly what
-it wrote, is satisfied, and drives an application still holding its defaults.
-The suite sends `WM_SETTEXT` straight to each control instead.
-
-**Each instance is matched to its own process.** `FindWindow` returns any
-window of the class, and an instance asked to close stays alive for as long as
-its shutdown takes. Matching the window to the process the suite launched is
-what keeps one test from driving the previous test's dying copy.
-
-Both of these were bugs in the suite during development. They are recorded
-here because they are easy to reintroduce.
+Fields are set by sending `WM_SETTEXT` to each control, and each window is
+matched to the process the suite launched. The docstrings in
+`Tests/snailnet_tests/app.py` explain why; read them before changing how the
+suite finds or fills in the window.
 
 ## What each test proves
 
@@ -233,7 +176,7 @@ here because they are easy to reintroduce.
 | Test | What it proves |
 |---|---|
 | `roundtrip_is_byte_exact` | Data through the relay comes back unchanged |
-| `latency_applies_one_way` | The delay applies to target→client only. Measured in **both** directions, so a delay applied twice fails rather than passing as "slow enough" |
+| `latency_applies_one_way` | The delay applies to target-to-client traffic only. Measured in **both** directions, so a delay applied twice fails rather than passing as "slow enough" |
 | `large_delayed_download_is_whole` | 8 MB through the delayed direction arrives whole, past the 1 MB queue cap, forcing back pressure repeatedly |
 | `large_undelayed_upload_is_whole` | 8 MB through the undelayed direction arrives whole |
 | `half_close_lets_the_reply_through` | A client that finishes sending still receives the full response. A relay treating that as a full shutdown truncates the reply |
@@ -271,15 +214,19 @@ of zero is accepted (it turns SnailNet into a plain relay).
 | `blank_address_is_rejected` | An address that is explicitly empty is refused, not quietly treated as a default |
 | `relay_works_and_reports_sessions` | A real session through the CLI is byte exact, delayed one way, and the session start/end is printed with live counts |
 | `omitted_flags_use_the_gui_defaults` | Leaving a flag out falls back to the same default the GUI pre-fills, confirmed by timing, not just by reading the help text |
-| `ctrl_c_stops_cleanly` | Ctrl+C drains and stops the relay the same way the GUI's Stop button does |
+| `console_signal_stops_cleanly` | A console signal stops the relay the same way the GUI's Stop button does, exits 0, and frees the port |
 
-`ctrl_c_stops_cleanly` needs a real console to send a real Ctrl+C through
-(`GenerateConsoleCtrlEvent` is silently a no-op without one), which the
-process running the suite does not always have: a background task runner
-or certain CI setups can lack one entirely. The test checks for this itself
-and skips rather than hangs; the shutdown path was confirmed by hand against
-a real console during development. See
-[DeveloperGuide.md](DeveloperGuide.md#command-line-mode) for the detail.
+`console_signal_stops_cleanly` sends Ctrl+Break, not Ctrl+C. Windows
+disables Ctrl+C in a process started in its own process group, which the
+suite needs in order to signal SnailNet without also signalling itself.
+SnailNet handles both keys in the same place, so the shutdown path tested is
+the one a user's Ctrl+C takes.
+
+Sending either needs the process running the suite to have a real console
+(`GenerateConsoleCtrlEvent` is silently a no-op without one). A background
+task runner or some CI setups lack one, so the test checks for this and
+skips rather than hangs, and the other tests here end SnailNet with a kill
+instead. See [developerguide.md](developerguide.md#command-line-mode).
 
 ## Running part of the suite
 
@@ -290,11 +237,20 @@ poetry run pytest -k latency                 # tests whose name contains "latenc
 poetry run pytest -x                          # stop at the first failure
 poetry run pytest -q                          # one line per test
 poetry run pytest --durations=10              # show the ten slowest
+poetry run pytest -o log_cli=true             # print each command a test runs
+poetry run pytest --report=reports/report.html  # write an HTML report
 ```
 
 Tests marked `slow` move several megabytes or wait out a long delay. They are
 the ones most likely to catch a data-loss bug, so prefer the full suite before
 merging anything.
+
+The `--report` file is plain HTML with no scripts, so it opens in any browser
+or file viewer. Each row shows the test's result, what it checks (its
+docstring), and an expandable **Commands and output** section listing the
+exact `SnailNet.exe` commands it ran, their exit codes, and any failure
+output. CI writes one for the command line tests and publishes it as the
+`cli-test-report` artifact.
 
 ## When something fails
 
@@ -313,7 +269,11 @@ with the full output attached.
 
 ## API documentation
 
-The suite's modules are documented from their own docstrings with Sphinx:
+This guide covers running the suite and reading its results. The API of
+the harness itself (`SnailNet`, `CliProcess`, the test servers, and the
+support helpers) is documented separately, generated by Sphinx autodoc from
+the docstrings in `Tests/snailnet_tests`. You need it when writing a new
+test, not when running the existing ones:
 
 ```console
 cd Tests
@@ -323,17 +283,19 @@ poetry run sphinx-build -b html docs docs/_build/html
 
 Open `Tests/docs/_build/html/index.html`.
 
+The generated pages are not copied into this guide. The docstrings are the
+source of truth, so a copy here would go stale the first time a signature
+changed. If you change a public function in `snailnet_tests`, update its
+docstring and the rendered docs follow.
+
 ## Keeping the suite healthy
 
-The repository's `pre-commit` hooks cover the Python here. Before committing
-changes to the suite:
+The repository's `pre-commit` hooks (black, isort, flake8, pylint) cover the
+Python here and run on every commit. To check the suite without committing,
+from the repository root:
 
 ```console
-cd Tests
-poetry run black --line-length=88 snailnet_tests tests docs
-poetry run isort --profile=black snailnet_tests tests docs
-poetry run flake8 --max-line-length=88 snailnet_tests tests docs
-poetry run pylint --disable=R --enable=C0114,C0115,C0116 snailnet_tests tests docs
+pre-commit run --files Tests/snailnet_tests/*.py Tests/tests/*.py Tests/docs/conf.py
 ```
 
 One thing the tools cannot check: the control identifiers in

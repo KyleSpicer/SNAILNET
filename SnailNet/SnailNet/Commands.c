@@ -56,9 +56,9 @@ ReadPort(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_opt_z_ PCWSTR pszName, _Out
  * @brief Relay notify callback that forwards to the window as WM_RELAY_NOTIFY.
  *
  * @details The whole of this module's binding to Relay.c's generic
- * RELAY_NOTIFY_PROC: it does nothing but post, so it keeps the same
- * non-blocking guarantee the old direct PostMessageW call had, and the UI
- * thread is still the only thread that ever touches a control.
+ * RELAY_NOTIFY_PROC: it does nothing but post, so it never blocks the
+ * relay worker that calls it, and the UI thread remains the only thread
+ * that touches a control.
  *
  * @param pContext Main window handle, cast back from PVOID.
  * @param Code     What happened.

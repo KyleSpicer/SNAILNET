@@ -78,9 +78,9 @@ static INT RunGui(VOID)
     MSG  Message = {0};
     INT  iStatus = SNAILNET_SUCCESS;
 
-    /* Every launch gets a console now, even one headed for the GUI. Hidden
-       immediately so a double click from Explorer still ends up looking
-       like a plain GUI app once past an unavoidable, brief flash. */
+    /* A console subsystem binary gets a console on every launch, even one
+       headed for the GUI. Hiding it at once makes a launch from Explorer
+       look like a plain GUI app after a brief, unavoidable flash. */
     (VOID) ShowWindow(GetConsoleWindow(), SW_HIDE);
 
     hWindow = WindowCreate(GetModuleHandleW(NULL), SW_SHOWDEFAULT, &iStatus);

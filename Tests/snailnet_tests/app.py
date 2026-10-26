@@ -1,7 +1,7 @@
 """Drives a running ``SnailNet.exe`` through its Win32 controls.
 
-SnailNet ignores its command line, so there is no headless mode to target.
-This module talks to the real window instead: it finds it by class name, sets
+This module covers the GUI; :mod:`snailnet_tests.cli` covers headless mode.
+It talks to the real window: it finds it by class name, sets
 the edit fields, posts button clicks, and reads the status line back. The
 control identifiers mirror ``SNAILNET_CTL_ID`` in ``SnailNet/Snailnet.h`` and
 have to be kept in step with it.
@@ -36,6 +36,7 @@ send would hang the test for exactly as long as the thing it is measuring.
 
 import ctypes
 import ctypes.wintypes as wt
+import logging
 import subprocess
 import time
 from typing import Callable, Optional
@@ -69,6 +70,8 @@ SMTO_ABORTIFHUNG = 0x0002
 READ_TIMEOUT_MS = 2000
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+_log = logging.getLogger(__name__)
 
 #: Signature of the EnumWindows callback.
 _ENUM_WINDOWS_PROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
@@ -129,28 +132,6 @@ def _window_for_pid(pid: int) -> Optional[int]:
     return match[0] if match else None
 
 
-def snailnet_window_count() -> int:
-    """Counts the SnailNet windows currently open, for leak diagnostics.
-
-    :return: Number of top level SnailNet windows.
-    """
-    seen: list = []
-
-    def visit(hwnd: int, _lparam: int) -> bool:
-        """Records ``hwnd`` when it is a SnailNet window."""
-        name = ctypes.create_unicode_buffer(len(WINDOW_CLASS) + 2)
-        _user32.GetClassNameW(hwnd, name, len(WINDOW_CLASS) + 2)
-
-        if name.value == WINDOW_CLASS:
-            seen.append(hwnd)
-
-        return True
-
-    _user32.EnumWindows(_ENUM_WINDOWS_PROC(visit), 0)
-
-    return len(seen)
-
-
 class SnailNet:
     """One running instance of SnailNet, addressed through its window.
 
@@ -209,6 +190,9 @@ class SnailNet:
 
             if hwnd and _user32.GetDlgItem(hwnd, IDC_START):
                 self.hwnd = hwnd
+                _log.info(
+                    "launched SnailNet.exe (pid %s), window 0x%X", self.proc.pid, hwnd
+                )
                 # The fonts are applied right after the controls are created.
                 # Settling here keeps the first field write from racing it.
                 time.sleep(0.3)
@@ -338,24 +322,19 @@ class SnailNet:
         :param target_port: Port SnailNet forwards to.
         :param latency_ms: Delay applied on the way back to the client.
         """
+        _log.info(
+            "configure listen %s:%s target %s:%s latency %s",
+            listen_addr,
+            listen_port,
+            target_addr,
+            target_port,
+            latency_ms,
+        )
         self._set_text(IDC_LISTEN_ADDR, str(listen_addr))
         self._set_text(IDC_LISTEN_PORT, str(listen_port))
         self._set_text(IDC_TARGET_ADDR, str(target_addr))
         self._set_text(IDC_TARGET_PORT, str(target_port))
         self._set_text(IDC_LATENCY, str(latency_ms))
-
-    def read_fields(self) -> dict:
-        """Reads all five fields back, for diagnosing a configure that failed.
-
-        :return: Field name to current text.
-        """
-        return {
-            "listen_addr": self._get_text(IDC_LISTEN_ADDR),
-            "listen_port": self._get_text(IDC_LISTEN_PORT),
-            "target_addr": self._get_text(IDC_TARGET_ADDR),
-            "target_port": self._get_text(IDC_TARGET_PORT),
-            "latency_ms": self._get_text(IDC_LATENCY),
-        }
 
     def _click(self, ctl_id: int) -> None:
         """Posts the ``WM_COMMAND`` a real button click would send.
@@ -372,10 +351,12 @@ class SnailNet:
 
     def start(self) -> None:
         """Presses Start. Returns at once; the relay may not be up yet."""
+        _log.info("pressed Start")
         self._click(IDC_START)
 
     def stop(self) -> None:
         """Presses Stop. Returns at once; the teardown may still be running."""
+        _log.info("pressed Stop")
         self._click(IDC_STOP)
 
     # -- state -------------------------------------------------------------

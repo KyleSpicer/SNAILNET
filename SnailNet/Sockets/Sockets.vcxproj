@@ -190,6 +190,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Sockets.h" />
+    <ClInclude Include="SocketsConstants.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Sockets.c" />

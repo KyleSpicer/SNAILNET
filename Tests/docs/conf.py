@@ -30,24 +30,11 @@ html_theme = "furo"
 
 # Document members in source order rather than alphabetically. These classes
 # read as a lifecycle (launch, configure, inspect, close) and sorting them
-# by name scatters that.
+# by name scatters that. api.rst names the modules and their options.
 autodoc_member_order = "bysource"
-
-autodoc_default_options = {
-    "members": True,
-    "undoc-members": False,
-    "show-inheritance": True,
-    "member-order": "bysource",
-}
-
-# ctypes resolves these at import time against user32, and the signatures are
-# noise in the rendered output.
-autodoc_mock_imports = []
 
 autodoc_typehints = "description"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
 }
-
-nitpicky = False

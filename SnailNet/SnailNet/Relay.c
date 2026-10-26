@@ -243,9 +243,8 @@ RelayStart(_In_ CONST RELAY_CONFIG   *pConfig,
     g_pfnNotify      = pfnNotify;
     g_pNotifyContext = pNotifyContext;
 
-    /* Before the listener takes the port. A bad target used to surface only
-       when the first client connected, which made a dead configuration look
-       like a working one for as long as nobody tried it. */
+    /* Before the listener takes the port, so a target that does not resolve
+       fails Start rather than looking healthy until a client connects. */
     SockStatus = SocketResolveCheck(g_Config.wszTargetAddr, g_Config.wszTargetPort);
 
     if (SOCKET_IS_ERROR(SockStatus))
@@ -370,8 +369,7 @@ static VOID Notify(_In_ RELAY_NOTIFY Code, _In_ LPARAM lData)
 
     /* Called directly, never posted or queued: Relay.c has no thread of its
        own to defer to, so the callback itself is what must not block. The
-       GUI's callback keeps the old guarantee by doing nothing but
-       PostMessageW; the CLI's does the same by doing nothing but print. */
+       GUI's callback only calls PostMessageW and the CLI's only prints. */
     g_pfnNotify(g_pNotifyContext, Code, lData);
 
 EXIT_NOTIFY:
@@ -576,8 +574,8 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
 
         /* A failure ends the session rather than leaving the healthy half
            waiting on a peer that will never answer. The drain below still
-           delivers whatever that half had queued, which is what made the
-           earlier version of this break lose data. */
+           delivers whatever that half had queued, so ending here loses
+           no data. */
         if (ToTarget.bFailed || ToClient.bFailed)
         {
             break;

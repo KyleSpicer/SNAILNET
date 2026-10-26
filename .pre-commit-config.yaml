@@ -66,3 +66,22 @@ repos:
     - id: isort
       args:
         - "--profile=black"  # Match Black's import style
+        # Run from the repo root, isort cannot see that snailnet_tests is
+        # the suite's own package and groups it with pytest; this matches
+        # what a manual run from inside Tests/ already does.
+        - "--src=Tests"
+
+  # Markdown Hooks
+
+  # markdownlint (Markdown style checks)
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.50.0
+    hooks:
+    - id: markdownlint
+      args:
+        - "--disable"
+        - "MD013"  # Line length: table rows and commands cannot be wrapped
+        - "MD033"  # Inline HTML: the centered logo at the top of each doc
+        - "MD041"  # First line heading: the first line is the logo
+        - "MD060"  # Table pipe alignment: docs use compact |---| tables
+        - "--"     # End of the rule list; pre-commit appends file names

@@ -57,11 +57,9 @@
  * @brief Usage text for --help.
  *
  * @details Plain text rather than built from the CLI_FLAG_* constants
- * below: an early version concatenated the two so they could not drift
- * apart, but the resulting line-wrapping was unstable under clang-format
- * (two consecutive formatting passes produced different output). The
- * flags are few enough and change rarely enough that keeping this in
- * step by hand costs less than that did.
+ * below: concatenating them makes clang-format's line wrapping unstable
+ * (consecutive formatting passes disagree). The flags are few and change
+ * rarely, so keep this text in step with them by hand.
  */
 static CONST WCHAR g_szUsage[] =
     L"SnailNet [options]\n"
@@ -428,7 +426,7 @@ static BOOL WINAPI CliCtrlHandler(_In_ DWORD dwCtrlType)
            the process regardless of what this handler does. A drain that
            is still waiting on a slow peer when that grace period expires
            is cut short either way; Ctrl+C and Ctrl+Break do not carry that
-           risk; see DeveloperGuide.md. */
+           risk; see developerguide.md. */
         g_bCliStoppedBySignal = TRUE;
         wprintf(L"%s", MSG_CLI_STOPPING);
         (VOID) SetEvent(g_hCliStopEvent);

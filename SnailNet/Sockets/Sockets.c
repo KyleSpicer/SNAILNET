@@ -9,33 +9,6 @@
 
 #include "Sockets.h"
 
-#define WINSOCK_MAJOR_VERSION_2 2
-#define WINSOCK_MINOR_VERSION_2 2
-
-/** Slots in the array handed to WSAWaitForMultipleEvents. */
-#define WAIT_SLOT_NETWORK 0
-#define WAIT_SLOT_ABORT 1
-#define WAIT_SLOT_MAX 2
-
-/** Fixed English text returned by SocketStatusText, one per SOCKET_STATUS
-    value plus the fallback for a code outside the enum. */
-#define SOCKTXT_UNKNOWN L"Unknown socket status."
-#define SOCKTXT_SUCCESS L"Success."
-#define SOCKTXT_ERROR L"The operation failed."
-#define SOCKTXT_INVALID_ARGS L"Invalid arguments."
-#define SOCKTXT_BAD_MEMORY_ALLOC L"Out of memory."
-#define SOCKTXT_WSA_STARTUP_FAIL L"Winsock could not be initialised."
-#define SOCKTXT_RESOLVE_ADDR_ERROR L"The address could not be resolved."
-#define SOCKTXT_CREATE_SOCKET_FAIL L"The socket could not be created."
-#define SOCKTXT_CREATE_EVENT_FAIL L"The network event could not be created."
-#define SOCKTXT_EVENT_SELECT_FAIL L"The socket could not be bound to its event."
-#define SOCKTXT_BIND_ERROR L"The address or port is unavailable."
-#define SOCKTXT_LISTEN_ERROR L"The socket could not listen."
-#define SOCKTXT_ACCEPT_ERROR L"The connection could not be accepted."
-#define SOCKTXT_CONNECT_ERROR L"The target refused the connection or is unreachable."
-#define SOCKTXT_TIMEOUT L"The operation timed out."
-#define SOCKTXT_ABORTED L"The operation was cancelled."
-
 /**
  * @brief Resolves an address and port into an addrinfo list.
  *
@@ -86,7 +59,8 @@ SocketLibInit(VOID)
     WSADATA       WsaData    = {0};
     INT           iResult    = 0;
 
-    iResult = WSAStartup(MAKEWORD(WINSOCK_MAJOR_VERSION_2, WINSOCK_MINOR_VERSION_2), &WsaData);
+    iResult =
+        WSAStartup(MAKEWORD(SOCKET_WINSOCK_VERSION_MAJOR, SOCKET_WINSOCK_VERSION_MINOR), &WsaData);
 
     if (0 != iResult)
     {
@@ -288,7 +262,7 @@ SocketBindAndListen(_In_ PSOCKET_CTX pSocketCtx)
         goto EXIT_BIND_LISTEN;
     }
 
-    iResult = listen(pSocketCtx->Socket, SOMAXCONN);
+    iResult = listen(pSocketCtx->Socket, SOCKET_LISTEN_BACKLOG);
 
     if (SOCKET_ERROR == iResult)
     {
@@ -909,13 +883,13 @@ static SOCKET_STATUS ResolveHostAddress(_In_z_ PCWSTR        pwszAddress,
         goto EXIT_RESOLVE;
     }
 
-    aiHints.ai_family   = AF_UNSPEC;
-    aiHints.ai_socktype = SOCK_STREAM;
-    aiHints.ai_protocol = IPPROTO_TCP;
+    aiHints.ai_family   = SOCKET_RESOLVE_FAMILY;
+    aiHints.ai_socktype = SOCKET_RESOLVE_SOCKTYPE;
+    aiHints.ai_protocol = SOCKET_RESOLVE_PROTOCOL;
 
     if (bPassive)
     {
-        aiHints.ai_flags = AI_PASSIVE;
+        aiHints.ai_flags = SOCKET_RESOLVE_PASSIVE_FLAGS;
     }
 
     /* Resolve into a local so a non-zero return can never leave a stale or
@@ -953,10 +927,10 @@ EXIT_RESOLVE:
 static SOCKET_STATUS
 WaitForNetworkOrAbort(_In_ WSAEVENT hNetworkEvent, _In_ DWORD dwTimeoutMs, _In_opt_ HANDLE hAbort)
 {
-    SOCKET_STATUS SockStatus              = SOCKET_STATUS_ERROR;
-    WSAEVENT      ahEvents[WAIT_SLOT_MAX] = {0};
-    DWORD         dwCount                 = 1;
-    DWORD         dwWait                  = 0;
+    SOCKET_STATUS SockStatus                     = SOCKET_STATUS_ERROR;
+    WSAEVENT      ahEvents[SOCKET_WAIT_SLOT_MAX] = {0};
+    DWORD         dwCount                        = 1;
+    DWORD         dwWait                         = 0;
 
     if (WSA_INVALID_EVENT == hNetworkEvent)
     {
@@ -964,23 +938,23 @@ WaitForNetworkOrAbort(_In_ WSAEVENT hNetworkEvent, _In_ DWORD dwTimeoutMs, _In_o
         goto EXIT_WAIT;
     }
 
-    ahEvents[WAIT_SLOT_NETWORK] = hNetworkEvent;
+    ahEvents[SOCKET_WAIT_SLOT_NETWORK] = hNetworkEvent;
 
     if (NULL != hAbort)
     {
-        ahEvents[WAIT_SLOT_ABORT] = hAbort;
-        dwCount                   = WAIT_SLOT_MAX;
+        ahEvents[SOCKET_WAIT_SLOT_ABORT] = hAbort;
+        dwCount                          = SOCKET_WAIT_SLOT_MAX;
     }
 
     /* fAlertable FALSE: no APCs are queued to these threads, and waking for
        one would only complicate the caller's state machine. */
     dwWait = WSAWaitForMultipleEvents(dwCount, ahEvents, FALSE, dwTimeoutMs, FALSE);
 
-    if ((WSA_WAIT_EVENT_0 + WAIT_SLOT_NETWORK) == dwWait)
+    if ((WSA_WAIT_EVENT_0 + SOCKET_WAIT_SLOT_NETWORK) == dwWait)
     {
         SockStatus = SOCKET_STATUS_SUCCESS;
     }
-    else if ((WSA_WAIT_EVENT_0 + WAIT_SLOT_ABORT) == dwWait)
+    else if ((WSA_WAIT_EVENT_0 + SOCKET_WAIT_SLOT_ABORT) == dwWait)
     {
         SockStatus = SOCKET_STATUS_ABORTED;
     }
