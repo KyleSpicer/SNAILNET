@@ -206,8 +206,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\Docs\Images\snail.ico" />
-    <Image Include="..\..\Docs\Images\snailnet-color-scaled.png" />
-    <Image Include="..\..\Docs\Images\snailnet-color.png" />
+    <Image Include="..\..\Docs\image.png" />
     <Image Include="..\..\Docs\Images\snail_preview.png" />
   </ItemGroup>
   <ItemGroup>

@@ -3,7 +3,6 @@ name = "snailnet-tests"
 version = "1.0.0"
 description = "End to end test suite for SnailNet, driving the shipping executable through its Win32 controls."
 authors = [{ name = "4-Projects" }]
-readme = "README.md"
 requires-python = ">=3.11,<4.0"
 license = { text = "MIT" }
 dependencies = []
@@ -18,12 +17,10 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 packages = [{ include = "snailnet_tests" }]
 
+# Formatters and linters are not listed: pre-commit installs and pins them
+# (see .pre-commit-config.yaml at the repo root).
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
-black = "^25.1.0"
-flake8 = "^7.1.1"
-isort = "^6.0.0"
-pylint = "^3.3.4"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^8.1.0"
@@ -39,10 +36,13 @@ furo = "^2024.8.6"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-# JUnit XML lands in reports/, gitignored: a build artifact, not something
-# to commit. It is the standard format a CI step would parse; for a human,
-# the console output above is still the more readable record of a run.
-addopts = "-v --strict-markers --durations=10 --junitxml=reports/junit.xml"
+addopts = "-v --strict-markers --durations=10"
+# Capture INFO logs so the --report HTML shows what each test did (the
+# harness logs the commands it runs). Console output stays quiet unless
+# log_cli is switched on, as CI does with -o log_cli=true.
+log_level = "INFO"
+log_format = "%(asctime)s %(message)s"
+log_date_format = "%H:%M:%S"
 markers = [
     "slow: moves multiple megabytes or waits out a long delay",
 ]

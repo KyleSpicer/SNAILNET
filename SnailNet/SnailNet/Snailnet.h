@@ -69,9 +69,8 @@
 #define FMT_PORT_TEXT L"%u"
 
 //
-// The status block is several lines. One line could not hold an address
-// pair, the latency and the counters at this window width, so the static
-// control ellipsized the end and the session counts were never visible.
+// The status block is several lines: one line cannot hold an address
+// pair, the latency and the session counters at this window width.
 // Static controls break on CRLF, the same as the edit controls in Help.c.
 //
 #define FMT_RUNNING L"Listening on:  %s:%u\r\nForwarding to:  %s:%u\r\nLatency:  %u ms to client"
@@ -106,8 +105,8 @@ typedef enum _SNAILNET_CTL_ID
     IDC_ABOUT_TEXT,
 
     //
-    // The field labels need identifiers of their own now. Tab switching hides
-    // controls one at a time, and a control with no id cannot be found to hide.
+    // The field labels need identifiers: tab switching hides controls one
+    // at a time, and a control with no id cannot be found to hide.
     //
     IDC_LABEL_LISTEN_ADDR,
     IDC_LABEL_LISTEN_PORT,

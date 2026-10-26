@@ -1,8 +1,9 @@
 """End to end test support for SnailNet.
 
-SnailNet is a Win32 GUI application with no command line, so the only honest
-way to test the binary that ships is to drive it the way a person would: fill
-in its fields, press its buttons, and watch real TCP traffic come out the far
+SnailNet is a Win32 application with a window and a headless command line
+mode, and no API. The only honest way to test the binary that ships is to
+drive it the way a person or script would: fill in its fields and press its
+buttons, or pass it arguments, then watch real TCP traffic come out the far
 side. That is what this package provides.
 
 :mod:`snailnet_tests.app`

@@ -1,73 +1,101 @@
 <p align="center">
-  <img src="Docs/Images/snailnet-color.png" alt="SnailNet" width="400">
+  <img src="Docs/image.png" alt="SnailNet" width="400">
 </p>
 
-# SnailNet
+# SnailNet v1.0.0
 
 SnailNet is a lightweight Win32 TCP proxy that injects configurable latency
-into a connection. It listens on a local address and port, forwards traffic to
-a target address and port, and delays the relayed stream by a user-specified
-number of milliseconds. Useful for testing how applications behave over slow
-or high-latency links without touching the network stack.
+into a connection, for testing how software behaves over slow or
+high-latency links. It is written in C against Winsock2, with a small GUI
+and a headless command line mode in the same executable.
+
+This README is for developers working on SnailNet. **If you just want to
+use it, see the [User Guide](Docs/userguide.md)**, which ships as a PDF
+alongside `SnailNet.exe` in every release.
 
 ## Table of Contents
 
-- [How it works](#how-it-works)
-- [Running it](#running-it)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Repository layout](#repository-layout)
 - [Documentation](#documentation)
+- [Contributing](#contributing)
 - [License](#license)
 
-## How it works
+## Requirements
 
-SnailNet sits between a client and a real server. The client connects to
-SnailNet's listen address instead of the real one; SnailNet opens its own
-connection to the target and forwards bytes between the two.
+| | Required | Notes |
+|---|---|---|
+| OS | Windows 10 or later, x64 | Win32 and Winsock only; does not build or run on Linux or macOS |
+| IDE | Visual Studio 2026 (toolset `v145`) | With the **Desktop development with C++** workload: the C compiler, Windows SDK, and `rc.exe` |
+| Language | C | Warning level `/W4`, CRT linked statically (`/MT`) |
+| Dependencies | None | Links only against the Windows SDK |
 
-The delay is **one way**: only traffic heading back to the client is held.
-A request reaches the target immediately, and only the reply is delayed, so
-a request/response exchange pays the latency once rather than twice.
+To run the test suite and the formatting hooks, you also need:
 
-Delayed bytes are not produced by sleeping on the socket. Each chunk read
-from the target is stamped with the moment it becomes due (arrival time
-plus the configured latency) and queued. A background pass releases it once
-that time passes. Sleeping on the read would add the same delay but also cap
-throughput at one buffer per interval; stamping and queuing does not.
+| | Required | Notes |
+|---|---|---|
+| Python | 3.11 or newer | Runs the end-to-end test suite in `Tests/` |
+| [Poetry](https://python-poetry.org/docs/#installation) | 2.x | Manages the test suite's virtual environment |
+| [pre-commit](https://pre-commit.com/) | Any recent | Runs `clang-format`, `black`, `flake8`, `pylint`, and `isort` on commit |
 
-Each accepted client gets its own thread and its own connection to the
-target, so several clients can be relayed at once without one affecting
-another's timing.
+## Quick start
 
-## Running it
+```console
+git clone https://gitea.com/4-Projects/SNAILNET.git
+cd SNAILNET
+pre-commit install
 
-Launch the executable and fill in five fields:
+cd SnailNet
+msbuild SnailNet.slnx /p:Configuration=Release /p:Platform=x64
 
-| Field | Meaning |
+cd ..\Tests
+poetry install
+poetry run pytest
+```
+
+The executable lands in `SnailNet/Build/x64/Release/SnailNet.exe`. You can
+also open `SnailNet/SnailNet.slnx` in Visual Studio and build with
+Ctrl+Shift+B.
+
+If `msbuild` is not found, use a **Developer PowerShell for VS 2026** rather
+than a plain terminal. The 32-bit build takes `/p:Platform=x86`, not
+`Win32`; the [Developer Guide](Docs/developerguide.md#building-from-source)
+explains why.
+
+## Repository layout
+
+| Path | What it holds |
 |---|---|
-| Listen address | Where SnailNet binds. `127.0.0.1` for local testing |
-| Listen port | The port your client connects to |
-| Target address | The real service |
-| Target port | The real service's port |
-| Latency (ms) | Delay applied to traffic on its way back to the client |
+| `SnailNet/SnailNet.slnx` | The Visual Studio solution |
+| `SnailNet/Sockets/` | A small, reusable, event-driven Winsock wrapper with no GUI dependency |
+| `SnailNet/SnailNet/` | The application: entry point, GUI, CLI, and the relay itself |
+| `Tests/` | End-to-end test suite (Python, Poetry) that drives the built executable |
+| `Docs/` | The user, developer, and test guides, plus images |
+| `.gitea/workflows/build-release.yml` | CI: builds, runs the command line tests, and on `v*` tags publishes a release |
 
-Press **Start**, point your client at the listen address, and traffic flows
-through with the delay applied.
-
-SnailNet also runs headlessly: any command line argument starts the relay
-directly, with no window, and `--help` lists them. See
-[Docs/UserGuide.md](Docs/UserGuide.md#command-line-mode).
-
-There is no packaged release yet, so for now this means building it
-yourself; see [Docs/DeveloperGuide.md](Docs/DeveloperGuide.md). For two
-worked examples with diagrams, including one with a client on a different
-machine, see [Docs/UserGuide.md](Docs/UserGuide.md).
+There is a file-by-file breakdown in the
+[Developer Guide](Docs/developerguide.md#project-layout).
 
 ## Documentation
 
-| Guide | For |
-|---|---|
-| [Docs/UserGuide.md](Docs/UserGuide.md) | Running SnailNet, worked examples, troubleshooting |
-| [Docs/DeveloperGuide.md](Docs/DeveloperGuide.md) | Building from source, project layout, coding conventions, contributing |
-| [Docs/TestGuide.md](Docs/TestGuide.md) | Running the automated test suite and reading its output |
+| Guide | Audience | Covers |
+|---|---|---|
+| [Docs/userguide.md](Docs/userguide.md) | Anyone running SnailNet | The GUI, command line flags, worked examples, troubleshooting. Rendered to PDF for the release package |
+| [Docs/developerguide.md](Docs/developerguide.md) | Contributors | Building, project settings, architecture, coding conventions, releases |
+| [Docs/testguide.md](Docs/testguide.md) | Contributors | Running the test suite, reading its output, what each test proves |
+
+Behavior that users can see, such as flags, defaults, and examples, is
+documented once in the User Guide. The other guides link to it rather than
+repeating it.
+
+## Contributing
+
+Branch from `main`, naming the branch after the issue (`12-relay-shutdown`).
+Build clean at `/W4`, run the test suite, and reference the issue in the pull
+request with `Closes #12`. The
+[Developer Guide](Docs/developerguide.md#contributing) has the full
+checklist and the coding conventions.
 
 ## License
 

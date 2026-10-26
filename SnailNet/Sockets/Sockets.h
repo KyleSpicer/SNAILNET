@@ -20,10 +20,7 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
-#define SOCKET_IS_ERROR(Status) (SOCKET_STATUS_SUCCESS != (Status))
-
-/** Event mask applied to a connected socket. */
-#define SOCKET_CONN_EVENTS (FD_READ | FD_WRITE | FD_CLOSE)
+#include "SocketsConstants.h"
 
 /** @brief Result of a library operation. */
 typedef enum _SOCKET_STATUS

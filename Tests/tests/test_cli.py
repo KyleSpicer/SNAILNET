@@ -17,17 +17,41 @@ from snailnet_tests.support import connect, read_to_eof
 def _stop(cli: CliProcess) -> None:
     """Ends a CliProcess the best way this environment allows.
 
-    A real Ctrl+C where one is possible, exercising the same shutdown path
-    a user hitting it would; a plain kill otherwise. Several tests use this
-    purely to end a session that has already finished on its own, where a
-    graceful stop is not what is under test, so a console-less environment
-    should not cost them a wasted 20 second timeout waiting on a signal
-    nothing can deliver; see has_console.
+    A real console signal where one is possible, exercising the same
+    shutdown path a user pressing Ctrl+C would; a plain kill otherwise.
+    Several tests use this purely to end a session that has already
+    finished on its own, where a graceful stop is not what is under test, so
+    a console-less environment should not cost them a wasted 20 second
+    timeout waiting on a signal nothing can deliver; see has_console.
     """
     if has_console():
-        cli.send_ctrl_c()
+        cli.send_ctrl_break()
     else:
         cli.stop()
+
+
+def _connect_when_ready(cli: CliProcess, port: int) -> socket.socket:
+    """Connects to the relay once its listener is bound.
+
+    There is no startup signal to wait on, unlike the GUI's Stop button, so
+    this retries the connect to cover the gap between the process existing
+    and the listener being bound.
+
+    :param cli: The running relay.
+    :param port: Its listen port.
+    :return: The connected socket.
+    """
+    for _ in range(50):
+        if not cli.alive:
+            _code, out, err = cli.wait(timeout=1)
+            pytest.fail(f"relay exited before accepting; out={out!r} err={err!r}")
+
+        try:
+            return connect(port)
+        except OSError:
+            time.sleep(0.1)
+
+    pytest.fail("could not connect within the startup window")
 
 
 def test_help_prints_usage_and_exits_clean(exe_path):
@@ -122,25 +146,7 @@ def test_relay_works_and_reports_sessions(exe_path, ports):
             ],
         ) as cli,
     ):
-        # No fixed startup signal to wait on here, unlike the GUI's status
-        # line; retrying the connect covers the gap between the process
-        # existing and the listener actually being bound.
-        client = None
-
-        for _ in range(50):
-            if not cli.alive:
-                _code, out, err = cli.wait(timeout=1)
-                pytest.fail(f"relay exited before accepting; out={out!r} err={err!r}")
-
-            try:
-                client = connect(ports.listen)
-                break
-            except OSError:
-                time.sleep(0.1)
-
-        assert client is not None, "could not connect within the startup window"
-
-        with client:
+        with _connect_when_ready(cli, ports.listen) as client:
             client.sendall(data)
             client.shutdown(socket.SHUT_WR)
             total, digest = read_to_eof(client)
@@ -171,21 +177,7 @@ def test_omitted_flags_use_the_gui_defaults(exe_path, ports):
             ["--listen-port", str(ports.listen), "--target-port", str(ports.target)],
         ) as cli,
     ):
-        client = None
-
-        for _ in range(50):
-            if not cli.alive:
-                pytest.fail("relay exited before accepting")
-
-            try:
-                client = connect(ports.listen)
-                break
-            except OSError:
-                time.sleep(0.1)
-
-        assert client is not None
-
-        with client:
+        with _connect_when_ready(cli, ports.listen) as client:
             sent_at = time.monotonic()
             client.sendall(b"ping")
             assert client.recv(4) == b"ping"
@@ -206,12 +198,13 @@ def test_omitted_flags_use_the_gui_defaults(exe_path, ports):
     not has_console(),
     reason="GenerateConsoleCtrlEvent needs this process to have a real console",
 )
-def test_ctrl_c_stops_cleanly(exe_path, ports):
-    """Ctrl+C stops the relay in the same way the GUI's Stop button does.
+def test_console_signal_stops_cleanly(exe_path, ports):
+    """A console signal stops the relay the same way the GUI's Stop does.
 
-    Confirmed by hand against a real console during development, since
-    the environment this suite itself runs in cannot always be relied on
-    to have one; see DeveloperGuide.md.
+    Sends Ctrl+Break, which SnailNet handles in the same case as Ctrl+C; see
+    CTRL_BREAK_EVENT in snailnet_tests.cli for why Ctrl+C itself cannot be
+    sent from here. Skipped when this process has no console of its own;
+    see developerguide.md.
     """
     with (
         EchoServer(ports.target),
@@ -220,20 +213,12 @@ def test_ctrl_c_stops_cleanly(exe_path, ports):
             ["--listen-port", str(ports.listen), "--target-port", str(ports.target)],
         ) as cli,
     ):
-        for _ in range(50):
-            if not cli.alive:
-                pytest.fail("relay exited before it could be stopped")
+        _connect_when_ready(cli, ports.listen).close()
 
-            try:
-                with connect(ports.listen):
-                    break
-            except OSError:
-                time.sleep(0.1)
-
-        cli.send_ctrl_c()
+        cli.send_ctrl_break()
         code, stdout, _stderr = cli.wait(timeout=20)
 
-    assert code == 0, f"Ctrl+C shutdown exited {code}; stdout: {stdout!r}"
+    assert code == 0, f"signalled shutdown exited {code}; stdout: {stdout!r}"
     assert "Stopping" in stdout
     assert "Stopped" in stdout
 

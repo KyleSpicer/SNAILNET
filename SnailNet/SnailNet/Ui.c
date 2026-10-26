@@ -823,9 +823,8 @@ static VOID BuildControls(_In_opt_ HWND hWindow, _In_opt_ HINSTANCE hInstance)
 
        SS_LEFT and STATUS_H rather than SS_PATHELLIPSIS and one row: the
        status text is an address pair, a latency and the session counters,
-       which does not fit this window's width on one line. SS_PATHELLIPSIS
-       cut the end off, so the counters it exists to show were never
-       visible. */
+       which does not fit this window's width on one line, and an ellipsis
+       would cut off the counters. */
     CreateWindowExW(0,
                     WND_CLASS_STATIC,
                     MSG_IDLE,

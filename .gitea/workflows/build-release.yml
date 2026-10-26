@@ -1,0 +1,126 @@
+name: build-release
+
+# Build SnailNet on pushes to main and release candidate branches
+on:
+  push:
+    branches:
+      - main
+      - "rc*"
+    tags: ["v*"]
+  pull_request:
+    branches:
+      - main
+      - "rc*"
+  workflow_dispatch:
+
+# Project specific variables
+env:
+  PROJECT: SnailNet/SnailNet.slnx
+  CONFIGURATION: Release
+  PLATFORM: x64
+
+jobs:
+  # Compile the executable and publish it. The same artifact is what the test
+  # and release jobs download, since jobs do not share a workspace.
+  build:
+    runs-on: tweedledum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build SnailNet
+        id: build-release
+        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/msbuild-release@main
+        with:
+          project: ${{ env.PROJECT }}
+          configuration: ${{ env.CONFIGURATION }}
+          platform: ${{ env.PLATFORM }}
+
+      - name: Show MSBuild used
+        shell: powershell
+        run: Write-Host "Built with ${{ steps.build-release.outputs.msbuild-path }}"
+
+      - name: Publish the executable
+        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/upload-build@main
+        with:
+          name: snailnet-windows-${{ env.PLATFORM }}
+          path: SnailNet/Build/${{ env.PLATFORM }}/${{ env.CONFIGURATION }}/SnailNet.exe
+
+  # Run the command line tests against the built executable and publish the
+  # HTML report, even when a test fails. The GUI tests need an interactive
+  # desktop the runner (a LocalSystem service) does not have, so only
+  # test_cli.py runs.
+  test:
+    runs-on: tweedledum
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the executable
+        uses: actions/download-artifact@v4
+        with:
+          name: snailnet-windows-${{ env.PLATFORM }}
+          path: SnailNet/Build/${{ env.PLATFORM }}/${{ env.CONFIGURATION }}
+
+      - name: Install test suite
+        shell: powershell
+        working-directory: Tests
+        run: poetry install
+
+      - name: Run CLI tests
+        shell: powershell
+        working-directory: Tests
+        run: poetry run pytest tests/test_cli.py --report=reports/cli-report.html -o log_cli=true
+
+      - name: Publish the test report
+        if: always()
+        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/upload-build@main
+        with:
+          name: cli-test-report
+          path: Tests/reports/cli-report.html
+
+  # Render Docs/userguide.md to userguide.pdf and publish it. Independent of
+  # the build, so it runs alongside it.
+  docs:
+    runs-on: tweedledum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish the user guide
+        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/userguide-pdf@main
+
+  # On a v* tag, attach the executable, user guide, and test report to a Gitea
+  # Release. Release assets never expire, unlike artifacts. Only runs when every
+  # other job passed, so a failing build is never released.
+  release:
+    runs-on: tweedledum
+    needs: [build, test, docs]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download the executable
+        uses: actions/download-artifact@v4
+        with:
+          name: snailnet-windows-${{ env.PLATFORM }}
+          path: dist
+
+      - name: Download the user guide
+        uses: actions/download-artifact@v4
+        with:
+          name: userguide
+          path: dist
+
+      - name: Download the test report
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-test-report
+          path: dist
+
+      - name: Create the release
+        uses: akkuman/gitea-release-action@v1.3.7
+        with:
+          files: |
+            dist/SnailNet.exe
+            dist/userguide.pdf
+            dist/cli-report.html
