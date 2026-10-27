@@ -8,7 +8,7 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.urls]
-Repository = "https://gitea.com/4-Projects/SNAILNET"
+Repository = "https://github.com/KyleSpicer/SNAILNET"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]
