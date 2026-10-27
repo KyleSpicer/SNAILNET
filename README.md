@@ -42,7 +42,7 @@ To run the test suite and the formatting hooks, you also need:
 ## Quick start
 
 ```console
-git clone https://gitea.com/4-Projects/SNAILNET.git
+git clone https://github.com/KyleSpicer/SNAILNET.git
 cd SNAILNET
 pre-commit install
 
@@ -72,7 +72,7 @@ explains why.
 | `SnailNet/SnailNet/` | The application: entry point, GUI, CLI, and the relay itself |
 | `Tests/` | End-to-end test suite (Python, Poetry) that drives the built executable |
 | `Docs/` | The user, developer, and test guides, plus images |
-| `.gitea/workflows/build-release.yml` | CI: builds, runs the command line tests, and on `v*` tags publishes a release |
+| `.github/workflows/build-release.yml` | CI: builds, runs the command line tests, and on `v*` tags publishes a release |
 
 There is a file-by-file breakdown in the
 [Developer Guide](Docs/developerguide.md#project-layout).

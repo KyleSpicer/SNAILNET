@@ -202,7 +202,7 @@ When cutting a release, bump the version in all of these together:
 | `userguide.pdf` | Rendered from `Docs/userguide.md` |
 | `cli-report.html` | Command line test report from the same run |
 
-The CI `release` job attaches all three to the Gitea Release for the tag.
+The CI `release` job attaches all three to the GitHub Release for the tag.
 
 The User Guide is the only guide that ships. It is written to stand on
 its own as a PDF, so keep it free of links to the other guides or into the
@@ -224,7 +224,7 @@ which takes a few seconds; later runs reuse it.
 
 ### CI
 
-`.gitea/workflows/build-release.yml` runs on pushes and pull requests to
+`.github/workflows/build-release.yml` runs on pushes and pull requests to
 `main` and `rc*` branches and on `v*` tags, in four jobs:
 
 | Job | Does | Publishes |
@@ -232,13 +232,13 @@ which takes a few seconds; later runs reuse it.
 | `build` | Builds x64 Release | `snailnet-windows-x64` artifact (the exe) |
 | `test` | Runs `tests/test_cli.py` against that exe | `cli-test-report` artifact, even when a test fails |
 | `docs` | Renders `Docs/userguide.md`, alongside `build` | `userguide` artifact (the PDF) |
-| `release` | `v*` tags only, and only if every other job passed | A Gitea Release with the exe, PDF, and report attached |
+| `release` | `v*` tags only, and only if every other job passed | A GitHub Release with the exe, PDF, and report attached |
 
 Artifacts expire after 7 days; release assets do not. Only the command line
-tests run in CI, because the runner is a Windows service with no desktop for
-the GUI tests' windows.
+tests run in CI, because the self-hosted runner `tweedledum` is a Windows
+service with no desktop for the GUI tests' windows.
 
 To cut a release, push a tag: `git tag v1.0.0` then `git push origin v1.0.0`.
-The release uses the workflow's automatic token. If Gitea rejects it, add a
-personal access token with repository write access as a secret and pass it to
-the release step's `token` input.
+The release uses the workflow's automatic `GITHUB_TOKEN`, which the
+`release` job grants `contents: write`. Pull requests from forks are skipped,
+since they would otherwise run untrusted code on `tweedledum`.

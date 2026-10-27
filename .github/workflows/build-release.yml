@@ -22,15 +22,19 @@ env:
 jobs:
   # Compile the executable and publish it. The same artifact is what the test
   # and release jobs download, since jobs do not share a workspace.
+  #
+  # tweedledum is a self-hosted runner and this repository is public, so pull
+  # requests from forks are skipped rather than run on it.
   build:
-    runs-on: tweedledum
+    runs-on: [self-hosted, tweedledum]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build SnailNet
         id: build-release
-        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/msbuild-release@main
+        uses: KyleSpicer/GitOps/actions/msbuild-release@main
         with:
           project: ${{ env.PROJECT }}
           configuration: ${{ env.CONFIGURATION }}
@@ -41,7 +45,7 @@ jobs:
         run: Write-Host "Built with ${{ steps.build-release.outputs.msbuild-path }}"
 
       - name: Publish the executable
-        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/upload-build@main
+        uses: KyleSpicer/GitOps/actions/upload-build@main
         with:
           name: snailnet-windows-${{ env.PLATFORM }}
           path: SnailNet/Build/${{ env.PLATFORM }}/${{ env.CONFIGURATION }}/SnailNet.exe
@@ -51,7 +55,7 @@ jobs:
   # desktop the runner (a LocalSystem service) does not have, so only
   # test_cli.py runs.
   test:
-    runs-on: tweedledum
+    runs-on: [self-hosted, tweedledum]
     needs: build
     steps:
       - name: Checkout
@@ -75,7 +79,7 @@ jobs:
 
       - name: Publish the test report
         if: always()
-        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/upload-build@main
+        uses: KyleSpicer/GitOps/actions/upload-build@main
         with:
           name: cli-test-report
           path: Tests/reports/cli-report.html
@@ -83,21 +87,24 @@ jobs:
   # Render Docs/userguide.md to userguide.pdf and publish it. Independent of
   # the build, so it runs alongside it.
   docs:
-    runs-on: tweedledum
+    runs-on: [self-hosted, tweedledum]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Publish the user guide
-        uses: https://gitea.com/Kyle-Spicer/GitOps/actions/userguide-pdf@main
+        uses: KyleSpicer/GitOps/actions/userguide-pdf@main
 
-  # On a v* tag, attach the executable, user guide, and test report to a Gitea
+  # On a v* tag, attach the executable, user guide, and test report to a GitHub
   # Release. Release assets never expire, unlike artifacts. Only runs when every
   # other job passed, so a failing build is never released.
   release:
-    runs-on: tweedledum
+    runs-on: [self-hosted, tweedledum]
     needs: [build, test, docs]
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
       - name: Download the executable
         uses: actions/download-artifact@v4
@@ -118,7 +125,7 @@ jobs:
           path: dist
 
       - name: Create the release
-        uses: akkuman/gitea-release-action@v1.3.7
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/SnailNet.exe
