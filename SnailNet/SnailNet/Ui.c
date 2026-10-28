@@ -11,6 +11,10 @@
  * for the selected tab. Every control is a direct child of the main window,
  * which is what keeps GetDlgItem working for Commands.c; parenting them to
  * per-tab panels would break every lookup in that file.
+ *
+ * Controls are created without a position. LayoutControls places them from
+ * the client size and DPI on every WM_SIZE, so the window can be resized and
+ * moved between monitors.
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -28,8 +32,26 @@
 
 #define COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
 
+/** One labelled edit box on the Relay tab. */
+typedef struct _FIELD_DEF
+{
+    PCWSTR pszLabel;
+    INT    iLabelId;
+    INT    iCtlId;
+    PCWSTR pszInitial;
+} FIELD_DEF, *PFIELD_DEF;
+
 static HFONT g_hTitleFont = NULL;
 static HFONT g_hUiFont    = NULL;
+static HICON g_hSnailIcon = NULL;
+
+/** The Relay tab's fields, top to bottom. */
+static CONST FIELD_DEF g_aFields[] = {
+    {LABEL_LISTEN_ADDR, IDC_LABEL_LISTEN_ADDR, IDC_LISTEN_ADDR, DEFAULT_LISTEN_ADDR},
+    {LABEL_LISTEN_PORT, IDC_LABEL_LISTEN_PORT, IDC_LISTEN_PORT, DEFAULT_LISTEN_PORT},
+    {LABEL_TARGET_ADDR, IDC_LABEL_TARGET_ADDR, IDC_TARGET_ADDR, DEFAULT_TARGET_ADDR},
+    {LABEL_TARGET_PORT, IDC_LABEL_TARGET_PORT, IDC_TARGET_PORT, DEFAULT_TARGET_PORT},
+    {LABEL_LATENCY, IDC_LABEL_LATENCY, IDC_LATENCY, DEFAULT_LATENCY}};
 
 /** Controls belonging to each tab, shown and hidden as a group. */
 static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
@@ -63,10 +85,8 @@ static BOOL RegisterMainClass(_In_opt_ HINSTANCE hInstance);
  * @brief Creates the tab control and its three tabs.
  *
  * @param hParent Main window. May be NULL.
- *
- * @return Tab control handle, or NULL.
  */
-static HWND AddTabs(_In_opt_ HWND hParent);
+static VOID AddTabs(_In_opt_ HWND hParent);
 
 /**
  * @brief Shows one tab's controls and hides the others.
@@ -88,63 +108,60 @@ static VOID
 ShowCtls(_In_opt_ HWND hWindow, _In_opt_ CONST INT *piIds, _In_ SIZE_T cIds, _In_ BOOL bShow);
 
 /**
- * @brief Draws the snail and wordmark across the top of the panel.
+ * @brief Creates one child control with no position; LayoutControls places it.
  *
  * @param hParent   Main window. May be NULL.
- * @param hInstance Module holding the icon resource. May be NULL.
- * @param x         Left edge of the panel.
- * @param iWidth    Usable panel width.
- * @param py        Layout cursor. Advanced past the header. May be NULL.
+ * @param dwExStyle Extended window style.
+ * @param pszClass  Window class name.
+ * @param pszText   Initial text. May be NULL.
+ * @param dwStyle   Window style.
+ * @param iCtlId    Control identifier.
  */
-static VOID AddHeader(_In_opt_ HWND      hParent,
-                      _In_opt_ HINSTANCE hInstance,
-                      _In_ INT           x,
-                      _In_ INT           iWidth,
-                      _Inout_opt_ PINT   py);
+static VOID AddCtl(_In_opt_ HWND     hParent,
+                   _In_ DWORD        dwExStyle,
+                   _In_z_ PCWSTR     pszClass,
+                   _In_opt_z_ PCWSTR pszText,
+                   _In_ DWORD        dwStyle,
+                   _In_ INT          iCtlId);
 
 /**
- * @brief Adds a label and edit box as one row.
+ * @brief Scales a 96 DPI layout value to a DPI.
  *
- * @param hParent    Main window. May be NULL.
- * @param pszLabel   Text for the label. May be NULL.
- * @param iLabelId   Control identifier for the label.
- * @param iCtlId     Control identifier for the edit box.
- * @param pszInitial Starting contents of the edit box. May be NULL.
- * @param x          Left edge of the panel.
- * @param py         Layout cursor. Advanced past the row. May be NULL.
+ * @param iValue Value at 96 DPI.
+ * @param uDpi   Target DPI.
+ *
+ * @return The scaled value.
  */
-static VOID AddField(_In_opt_ HWND     hParent,
-                     _In_opt_z_ PCWSTR pszLabel,
-                     _In_ INT          iLabelId,
-                     _In_ INT          iCtlId,
-                     _In_opt_z_ PCWSTR pszInitial,
-                     _In_ INT          x,
-                     _Inout_opt_ PINT  py);
+static INT Scale(_In_ INT iValue, _In_ UINT uDpi);
 
 /**
- * @brief Adds a push button at an explicit position.
+ * @brief Gets the window size that gives a CLIENT_W x CLIENT_H client area.
  *
- * @param hParent    Main window. May be NULL.
- * @param pszCaption Button text. May be NULL.
- * @param iCtlId     Control identifier.
- * @param x          Left edge.
- * @param y          Top edge.
+ * @param hWindow Main window. May be NULL.
+ * @param pSize   Receives the size, scaled to the window's DPI. Zero if
+ *                hWindow is NULL. May be NULL.
  */
-static VOID AddButton(
-    _In_opt_ HWND hParent, _In_opt_z_ PCWSTR pszCaption, _In_ INT iCtlId, _In_ INT x, _In_ INT y);
+static VOID GetMinWindowSize(_In_opt_ HWND hWindow, _Out_opt_ PSIZE pSize);
 
 /**
- * @brief Adds a read only body of text filling the panel.
+ * @brief Moves and sizes one control without repainting it.
  *
- * @param hParent Main window. May be NULL.
+ * @param hWindow Main window. May be NULL.
  * @param iCtlId  Control identifier.
- * @param pszText Text to display. May be NULL.
- * @param prc     Panel rectangle. May be NULL.
+ * @param x       Left edge.
+ * @param y       Top edge.
+ * @param cx      Width.
+ * @param cy      Height.
  */
-static VOID AddTextPanel(_In_opt_ HWND        hParent,
-                         _In_ INT             iCtlId,
-                         _In_opt_z_ PCWSTR    pszText,
-                         _In_opt_ CONST RECT *prc);
+static VOID
+PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy);
+
+/**
+ * @brief Positions every control for the current client size and DPI.
+ *
+ * @param hWindow Main window. May be NULL.
+ */
+static VOID LayoutControls(_In_opt_ HWND hWindow);
 
 /**
  * @brief EnumChildWindows callback that applies one font.
@@ -174,20 +191,32 @@ static VOID ApplyUiFont(_In_opt_ HWND hWindow);
 static VOID ApplyTitleFont(_In_opt_ HWND hWindow);
 
 /**
+ * @brief Loads the snail at the window's DPI and puts it in the header.
+ *
+ * @param hWindow Main window. May be NULL.
+ */
+static VOID ApplySnailIcon(_In_opt_ HWND hWindow);
+
+/**
+ * @brief Recreates the fonts and the snail for the window's current DPI.
+ *
+ * @param hWindow Main window. May be NULL.
+ */
+static VOID ApplyDpiResources(_In_opt_ HWND hWindow);
+
+/**
  * @brief Creates every child control and applies the fonts.
  *
- * @param hWindow   Main window. May be NULL.
- * @param hInstance Module holding the icon resource. May be NULL.
+ * @param hWindow Main window. May be NULL.
  */
-static VOID BuildControls(_In_opt_ HWND hWindow, _In_opt_ HINSTANCE hInstance);
+static VOID BuildControls(_In_opt_ HWND hWindow);
 
 HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_ PINT piStatus)
 {
-    INITCOMMONCONTROLSEX Controls        = {0};
-    RECT                 RectangleBounds = {0, 0, CLIENT_W, CLIENT_H};
-    DWORD                dwStyle         = WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
-    HWND                 hWindow         = NULL;
-    INT                  iStatus         = SNAILNET_SUCCESS;
+    INITCOMMONCONTROLSEX Controls   = {0};
+    SIZE                 WindowSize = {0};
+    HWND                 hWindow    = NULL;
+    INT                  iStatus    = SNAILNET_SUCCESS;
 
     if (NULL == hInstance)
     {
@@ -208,19 +237,14 @@ HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_
         goto EXIT_CREATE;
     }
 
-    /* Grow the rectangle by the frame so the client area ends up exactly
-       CLIENT_W x CLIENT_H. A failure here only costs us a few pixels, so the
-       result is deliberately ignored. */
-    (VOID) AdjustWindowRect(&RectangleBounds, dwStyle, FALSE);
-
     hWindow = CreateWindowExW(0,
                               WINDOW_CLASS,
                               PROJ_NAME,
-                              dwStyle,
+                              WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
                               CW_USEDEFAULT,
-                              RectangleBounds.right - RectangleBounds.left,
-                              RectangleBounds.bottom - RectangleBounds.top,
+                              CW_USEDEFAULT,
+                              CW_USEDEFAULT,
                               NULL,
                               NULL,
                               hInstance,
@@ -232,6 +256,16 @@ HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_
         iStatus = SNAILNET_FAIL_CREATE_WINDOW;
         goto EXIT_CREATE;
     }
+
+    /* Sized only now, once the window is on a monitor and has its DPI. */
+    GetMinWindowSize(hWindow, &WindowSize);
+    (VOID) SetWindowPos(hWindow,
+                        NULL,
+                        0,
+                        0,
+                        WindowSize.cx,
+                        WindowSize.cy,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
     ShowWindow(hWindow, iShowCommand);
     UpdateWindow(hWindow);
@@ -254,19 +288,49 @@ WndProc(_In_ HWND hWindow, _In_ UINT uMessage, _In_ WPARAM wParam, _In_ LPARAM l
     switch (uMessage)
     {
     case WM_CREATE:
-    {
-        LPCREATESTRUCTW pCreate = (LPCREATESTRUCTW)lParam;
-
-        /* Returning -1 from WM_CREATE aborts window creation, which is the
-           only sane response to a create struct we cannot read. */
-        if (NULL == pCreate)
-        {
-            return -1;
-        }
-
-        BuildControls(hWindow, pCreate->hInstance);
+        BuildControls(hWindow);
         SetRunning(hWindow, FALSE);
         ShowTab(hWindow, TAB_RELAY);
+        return 0;
+
+    case WM_SIZE:
+        LayoutControls(hWindow);
+        return 0;
+
+    case WM_GETMINMAXINFO:
+    {
+        LPMINMAXINFO pInfo   = (LPMINMAXINFO)lParam;
+        SIZE         MinSize = {0};
+
+        GetMinWindowSize(hWindow, &MinSize);
+
+        if (NULL != pInfo)
+        {
+            pInfo->ptMinTrackSize.x = MinSize.cx;
+            pInfo->ptMinTrackSize.y = MinSize.cy;
+        }
+
+        return 0;
+    }
+
+    case WM_DPICHANGED:
+    {
+        CONST RECT *pSuggested = (CONST RECT *)lParam;
+
+        /* The resize below sends WM_SIZE, which lays out at the new DPI. */
+        ApplyDpiResources(hWindow);
+
+        if (NULL != pSuggested)
+        {
+            (VOID) SetWindowPos(hWindow,
+                                NULL,
+                                pSuggested->left,
+                                pSuggested->top,
+                                pSuggested->right - pSuggested->left,
+                                pSuggested->bottom - pSuggested->top,
+                                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
         return 0;
     }
 
@@ -337,6 +401,12 @@ WndProc(_In_ HWND hWindow, _In_ UINT uMessage, _In_ WPARAM wParam, _In_ LPARAM l
             g_hUiFont = NULL;
         }
 
+        if (NULL != g_hSnailIcon)
+        {
+            DestroyIcon(g_hSnailIcon);
+            g_hSnailIcon = NULL;
+        }
+
         PostQuitMessage(SNAILNET_SUCCESS);
         return 0;
     }
@@ -389,7 +459,7 @@ EXIT_REGISTER:
 
 } /* RegisterMainClass */
 
-static HWND AddTabs(_In_opt_ HWND hParent)
+static VOID AddTabs(_In_opt_ HWND hParent)
 {
     TCITEMW Item  = {0};
     HWND    hTabs = NULL;
@@ -403,10 +473,10 @@ static HWND AddTabs(_In_opt_ HWND hParent)
                             WC_TABCONTROLW,
                             NULL,
                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS,
-                            MARGIN,
-                            MARGIN,
-                            CLIENT_W - 2 * MARGIN,
-                            TABS_H,
+                            0,
+                            0,
+                            0,
+                            0,
                             hParent,
                             (HMENU)(INT_PTR)IDC_TABS,
                             NULL,
@@ -432,7 +502,7 @@ static HWND AddTabs(_In_opt_ HWND hParent)
 
 EXIT_ADD_TABS:
 
-    return hTabs;
+    return;
 
 } /* AddTabs */
 
@@ -480,174 +550,207 @@ EXIT_SHOW_TAB:
 
 } /* ShowTab */
 
-static VOID AddHeader(_In_opt_ HWND      hParent,
-                      _In_opt_ HINSTANCE hInstance,
-                      _In_ INT           x,
-                      _In_ INT           iWidth,
-                      _Inout_opt_ PINT   py)
+static VOID AddCtl(_In_opt_ HWND     hParent,
+                   _In_ DWORD        dwExStyle,
+                   _In_z_ PCWSTR     pszClass,
+                   _In_opt_z_ PCWSTR pszText,
+                   _In_ DWORD        dwStyle,
+                   _In_ INT          iCtlId)
 {
-    HWND  hIconCtl = NULL;
-    HICON hSnail   = NULL;
-
-    if ((NULL == hParent) || (NULL == hInstance) || (NULL == py))
+    if (NULL == hParent)
     {
-        goto EXIT_ADD_HEADER;
+        goto EXIT_ADD_CTL;
     }
 
-    /* Request a size present in the .ico so Windows picks that entry rather
-       than resampling, which would smear the artwork. LR_SHARED hands the
-       static control a handle the system owns, so nothing here has to track
-       it for the lifetime of the window. */
-    hSnail = (HICON)LoadImageW(hInstance,
-                               MAKEINTRESOURCEW(IDI_SNAIL),
-                               IMAGE_ICON,
-                               ICON_SIZE,
-                               ICON_SIZE,
-                               LR_DEFAULTCOLOR | LR_SHARED);
-
-    hIconCtl = CreateWindowExW(0,
-                               WND_CLASS_STATIC,
-                               NULL,
-                               WS_CHILD | SS_ICON,
-                               x,
-                               *py,
-                               ICON_SIZE,
-                               ICON_SIZE,
-                               hParent,
-                               (HMENU)(INT_PTR)IDC_SNAIL,
-                               NULL,
-                               NULL);
-
-    /* A missing icon or control leaves a blank space rather than stopping the
-       rest of the layout, so neither failure is fatal. */
-    if ((NULL != hIconCtl) && (NULL != hSnail))
-    {
-        SendMessageW(hIconCtl, STM_SETICON, (WPARAM)hSnail, 0);
-    }
-
-    CreateWindowExW(0,
-                    WND_CLASS_STATIC,
-                    PROJ_NAME,
-                    WS_CHILD | SS_CENTERIMAGE,
-                    x + ICON_SIZE + BUTTON_GAP,
-                    *py,
-                    iWidth - ICON_SIZE - BUTTON_GAP,
-                    ICON_SIZE,
-                    hParent,
-                    (HMENU)(INT_PTR)IDC_TITLE,
-                    NULL,
-                    NULL);
-
-    *py += HEADER_H;
-
-EXIT_ADD_HEADER:
-
-    return;
-
-} /* AddHeader */
-
-static VOID AddField(_In_opt_ HWND     hParent,
-                     _In_opt_z_ PCWSTR pszLabel,
-                     _In_ INT          iLabelId,
-                     _In_ INT          iCtlId,
-                     _In_opt_z_ PCWSTR pszInitial,
-                     _In_ INT          x,
-                     _Inout_opt_ PINT  py)
-{
-    if ((NULL == hParent) || (NULL == pszLabel) || (NULL == pszInitial) || (NULL == py))
-    {
-        goto EXIT_ADD_FIELD;
-    }
-
-    CreateWindowExW(0,
-                    WND_CLASS_STATIC,
-                    pszLabel,
-                    WS_CHILD | SS_CENTERIMAGE,
-                    x,
-                    *py,
-                    LABEL_W,
-                    ROW_H,
-                    hParent,
-                    (HMENU)(INT_PTR)iLabelId,
-                    NULL,
-                    NULL);
-
-    CreateWindowExW(WS_EX_CLIENTEDGE,
-                    WND_CLASS_EDIT,
-                    pszInitial,
-                    WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
-                    x + LABEL_W,
-                    *py,
-                    FIELD_W,
-                    ROW_H,
-                    hParent,
-                    (HMENU)(INT_PTR)iCtlId,
-                    NULL,
-                    NULL);
-
-    *py += ROW_H + ROW_GAP;
-
-EXIT_ADD_FIELD:
-
-    return;
-
-} /* AddField */
-
-static VOID AddButton(
-    _In_opt_ HWND hParent, _In_opt_z_ PCWSTR pszCaption, _In_ INT iCtlId, _In_ INT x, _In_ INT y)
-{
-    if ((NULL == hParent) || (NULL == pszCaption))
-    {
-        goto EXIT_ADD_BUTTON;
-    }
-
-    CreateWindowExW(0,
-                    WND_CLASS_BUTTON,
-                    pszCaption,
-                    WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
-                    x,
-                    y,
-                    BUTTON_W,
-                    BUTTON_H,
-                    hParent,
-                    (HMENU)(INT_PTR)iCtlId,
-                    NULL,
-                    NULL);
-
-EXIT_ADD_BUTTON:
-
-    return;
-
-} /* AddButton */
-
-static VOID AddTextPanel(_In_opt_ HWND        hParent,
-                         _In_ INT             iCtlId,
-                         _In_opt_z_ PCWSTR    pszText,
-                         _In_opt_ CONST RECT *prc)
-{
-    if ((NULL == hParent) || (NULL == pszText) || (NULL == prc))
-    {
-        goto EXIT_ADD_TEXT;
-    }
-
-    CreateWindowExW(WS_EX_CLIENTEDGE,
-                    WND_CLASS_EDIT,
+    /* A control that fails to create leaves a gap rather than stopping the
+       rest of the window, so the result is not checked. */
+    CreateWindowExW(dwExStyle,
+                    pszClass,
                     pszText,
-                    WS_CHILD | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY,
-                    prc->left,
-                    prc->top,
-                    prc->right - prc->left,
-                    prc->bottom - prc->top,
+                    dwStyle,
+                    0,
+                    0,
+                    0,
+                    0,
                     hParent,
                     (HMENU)(INT_PTR)iCtlId,
                     NULL,
                     NULL);
 
-EXIT_ADD_TEXT:
+EXIT_ADD_CTL:
 
     return;
 
-} /* AddTextPanel */
+} /* AddCtl */
+
+static INT Scale(_In_ INT iValue, _In_ UINT uDpi)
+{
+    return MulDiv(iValue, (INT)uDpi, USER_DEFAULT_SCREEN_DPI);
+
+} /* Scale */
+
+static VOID GetMinWindowSize(_In_opt_ HWND hWindow, _Out_opt_ PSIZE pSize)
+{
+    RECT Bounds = {0};
+    UINT uDpi   = 0;
+
+    if (NULL == pSize)
+    {
+        goto EXIT_GET_MIN_SIZE;
+    }
+
+    pSize->cx = 0;
+    pSize->cy = 0;
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_GET_MIN_SIZE;
+    }
+
+    uDpi          = GetDpiForWindow(hWindow);
+    Bounds.right  = Scale(CLIENT_W, uDpi);
+    Bounds.bottom = Scale(CLIENT_H, uDpi);
+
+    /* A failure here only costs a few pixels of frame, so it is ignored. */
+    (VOID) AdjustWindowRectExForDpi(&Bounds,
+                                    (DWORD)GetWindowLongPtrW(hWindow, GWL_STYLE),
+                                    FALSE,
+                                    0,
+                                    uDpi);
+
+    pSize->cx = Bounds.right - Bounds.left;
+    pSize->cy = Bounds.bottom - Bounds.top;
+
+EXIT_GET_MIN_SIZE:
+
+    return;
+
+} /* GetMinWindowSize */
+
+static VOID
+PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy)
+{
+    HWND hCtl = NULL;
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_PLACE_CTL;
+    }
+
+    hCtl = GetDlgItem(hWindow, iCtlId);
+
+    if (NULL != hCtl)
+    {
+        (VOID) MoveWindow(hCtl, x, y, cx, cy, FALSE);
+    }
+
+EXIT_PLACE_CTL:
+
+    return;
+
+} /* PlaceCtl */
+
+static VOID LayoutControls(_In_opt_ HWND hWindow)
+{
+    RECT   Client     = {0};
+    RECT   Panel      = {0};
+    HWND   hTabs      = NULL;
+    UINT   uDpi       = 0;
+    SIZE_T iIndex     = 0;
+    INT    iStatusTop = 0;
+    INT    iIcon      = 0;
+    INT    iGap       = 0;
+    INT    iLabelW    = 0;
+    INT    iRowH      = 0;
+    INT    iButtonW   = 0;
+    INT    iWidth     = 0;
+    INT    x          = 0;
+    INT    y          = 0;
+
+    if ((NULL == hWindow) || !GetClientRect(hWindow, &Client))
+    {
+        goto EXIT_LAYOUT;
+    }
+
+    uDpi = GetDpiForWindow(hWindow);
+
+    /* The status block keeps its height along the bottom; the tabs take the
+       rest. It sits outside the tab control on purpose, so the connection
+       count stays readable while the Help tab is open. */
+    iStatusTop   = Client.bottom - Scale(MARGIN + STATUS_H, uDpi);
+    Panel.left   = Scale(MARGIN, uDpi);
+    Panel.top    = Scale(MARGIN, uDpi);
+    Panel.right  = Client.right - Scale(MARGIN, uDpi);
+    Panel.bottom = iStatusTop - Scale(ROW_GAP, uDpi);
+
+    PlaceCtl(hWindow,
+             IDC_TABS,
+             Panel.left,
+             Panel.top,
+             Panel.right - Panel.left,
+             Panel.bottom - Panel.top);
+    PlaceCtl(hWindow,
+             IDC_STATUS,
+             Panel.left,
+             iStatusTop,
+             Panel.right - Panel.left,
+             Scale(STATUS_H, uDpi));
+
+    /* Turns the control rectangle into the usable area inside it, which
+       depends on the tab row's font and theme. */
+    hTabs = GetDlgItem(hWindow, IDC_TABS);
+
+    if (NULL != hTabs)
+    {
+        TabCtrl_AdjustRect(hTabs, FALSE, &Panel);
+    }
+
+    PlaceCtl(hWindow,
+             IDC_HELP_TEXT,
+             Panel.left,
+             Panel.top,
+             Panel.right - Panel.left,
+             Panel.bottom - Panel.top);
+    PlaceCtl(hWindow,
+             IDC_ABOUT_TEXT,
+             Panel.left,
+             Panel.top,
+             Panel.right - Panel.left,
+             Panel.bottom - Panel.top);
+
+    x        = Panel.left + Scale(PANEL_PAD, uDpi);
+    y        = Panel.top + Scale(PANEL_PAD, uDpi);
+    iWidth   = (Panel.right - Panel.left) - Scale(2 * PANEL_PAD, uDpi);
+    iIcon    = Scale(ICON_SIZE, uDpi);
+    iGap     = Scale(BUTTON_GAP, uDpi);
+    iLabelW  = Scale(LABEL_W, uDpi);
+    iRowH    = Scale(ROW_H, uDpi);
+    iButtonW = Scale(BUTTON_W, uDpi);
+
+    PlaceCtl(hWindow, IDC_SNAIL, x, y, iIcon, iIcon);
+    PlaceCtl(hWindow, IDC_TITLE, x + iIcon + iGap, y, iWidth - iIcon - iGap, iIcon);
+    y += Scale(HEADER_H, uDpi);
+
+    /* Labels keep their width; the edit boxes take what is left. */
+    for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
+    {
+        PlaceCtl(hWindow, g_aFields[iIndex].iLabelId, x, y, iLabelW, iRowH);
+        PlaceCtl(hWindow, g_aFields[iIndex].iCtlId, x + iLabelW, y, iWidth - iLabelW, iRowH);
+        y += iRowH + Scale(ROW_GAP, uDpi);
+    }
+
+    PlaceCtl(hWindow, IDC_START, x + iLabelW, y, iButtonW, Scale(BUTTON_H, uDpi));
+    PlaceCtl(hWindow, IDC_STOP, x + iLabelW + iButtonW + iGap, y, iButtonW, Scale(BUTTON_H, uDpi));
+
+    /* One repaint for the whole move. The transparent labels do not erase
+       where they were, so the background has to be redrawn under them. */
+    (VOID) RedrawWindow(hWindow, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
+EXIT_LAYOUT:
+
+    return;
+
+} /* LayoutControls */
 
 static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 {
@@ -664,6 +767,7 @@ static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 static VOID ApplyUiFont(_In_opt_ HWND hWindow)
 {
     NONCLIENTMETRICSW Metrics = {0};
+    HFONT             hFont   = NULL;
 
     if (NULL == hWindow)
     {
@@ -677,24 +781,25 @@ static VOID ApplyUiFont(_In_opt_ HWND hWindow)
         goto EXIT_APPLY_UI_FONT;
     }
 
-    /* Keep the shell typeface but scale it to match the layout. */
-    Metrics.lfMessageFont.lfHeight = FONT_HEIGHT;
+    /* Keep the shell typeface but size it to the layout at this DPI. */
+    Metrics.lfMessageFont.lfHeight = Scale(FONT_HEIGHT, GetDpiForWindow(hWindow));
 
-    /* Guard against a second call leaking the previous handle. */
-    if (NULL != g_hUiFont)
-    {
-        DeleteObject(g_hUiFont);
-        g_hUiFont = NULL;
-    }
+    hFont = CreateFontIndirectW(&Metrics.lfMessageFont);
 
-    g_hUiFont = CreateFontIndirectW(&Metrics.lfMessageFont);
-
-    if (NULL == g_hUiFont)
+    if (NULL == hFont)
     {
         goto EXIT_APPLY_UI_FONT;
     }
 
-    EnumChildWindows(hWindow, ApplyFontToChild, (LPARAM)g_hUiFont);
+    /* The old font is deleted only once no control is still using it. */
+    EnumChildWindows(hWindow, ApplyFontToChild, (LPARAM)hFont);
+
+    if (NULL != g_hUiFont)
+    {
+        DeleteObject(g_hUiFont);
+    }
+
+    g_hUiFont = hFont;
 
 EXIT_APPLY_UI_FONT:
 
@@ -705,41 +810,34 @@ EXIT_APPLY_UI_FONT:
 static VOID ApplyTitleFont(_In_opt_ HWND hWindow)
 {
     LOGFONTW TitleFont = {0};
-    HWND     hTitle    = NULL;
+    HFONT    hFont     = NULL;
 
     if (NULL == hWindow)
     {
         goto EXIT_APPLY_TITLE_FONT;
     }
 
-    hTitle = GetDlgItem(hWindow, IDC_TITLE);
-
-    if (NULL == hTitle)
-    {
-        goto EXIT_APPLY_TITLE_FONT;
-    }
-
-    TitleFont.lfHeight  = TITLE_FONT_HEIGHT;
+    TitleFont.lfHeight  = Scale(TITLE_FONT_HEIGHT, GetDpiForWindow(hWindow));
     TitleFont.lfWeight  = FW_BOLD;
     TitleFont.lfCharSet = DEFAULT_CHARSET;
 
     lstrcpynW(TitleFont.lfFaceName, TITLE_FONT_FACE, LF_FACESIZE);
 
-    /* Guard against a second call leaking the previous handle. */
-    if (NULL != g_hTitleFont)
-    {
-        DeleteObject(g_hTitleFont);
-        g_hTitleFont = NULL;
-    }
+    hFont = CreateFontIndirectW(&TitleFont);
 
-    g_hTitleFont = CreateFontIndirectW(&TitleFont);
-
-    if (NULL == g_hTitleFont)
+    if (NULL == hFont)
     {
         goto EXIT_APPLY_TITLE_FONT;
     }
 
-    SendMessageW(hTitle, WM_SETFONT, (WPARAM)g_hTitleFont, TRUE);
+    SendDlgItemMessageW(hWindow, IDC_TITLE, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+    if (NULL != g_hTitleFont)
+    {
+        DeleteObject(g_hTitleFont);
+    }
+
+    g_hTitleFont = hFont;
 
 EXIT_APPLY_TITLE_FONT:
 
@@ -747,99 +845,119 @@ EXIT_APPLY_TITLE_FONT:
 
 } /* ApplyTitleFont */
 
-static VOID BuildControls(_In_opt_ HWND hWindow, _In_opt_ HINSTANCE hInstance)
+static VOID ApplySnailIcon(_In_opt_ HWND hWindow)
 {
-    RECT Panel  = {0};
-    HWND hTabs  = NULL;
-    INT  iWidth = 0;
-    INT  x      = 0;
-    INT  y      = 0;
+    HICON hSnail = NULL;
+    INT   iSize  = 0;
 
-    if ((NULL == hWindow) || (NULL == hInstance))
+    if (NULL == hWindow)
+    {
+        goto EXIT_APPLY_SNAIL;
+    }
+
+    iSize = Scale(ICON_SIZE, GetDpiForWindow(hWindow));
+
+    /* Not LR_SHARED: a shared handle keeps the size it was first loaded at,
+       and this one changes with the DPI. */
+    hSnail = (HICON)LoadImageW((HINSTANCE)GetWindowLongPtrW(hWindow, GWLP_HINSTANCE),
+                               MAKEINTRESOURCEW(IDI_SNAIL),
+                               IMAGE_ICON,
+                               iSize,
+                               iSize,
+                               LR_DEFAULTCOLOR);
+
+    /* A missing icon leaves a blank space, so it is not fatal. */
+    if (NULL == hSnail)
+    {
+        goto EXIT_APPLY_SNAIL;
+    }
+
+    SendDlgItemMessageW(hWindow, IDC_SNAIL, STM_SETICON, (WPARAM)hSnail, 0);
+
+    if (NULL != g_hSnailIcon)
+    {
+        DestroyIcon(g_hSnailIcon);
+    }
+
+    g_hSnailIcon = hSnail;
+
+EXIT_APPLY_SNAIL:
+
+    return;
+
+} /* ApplySnailIcon */
+
+static VOID ApplyDpiResources(_In_opt_ HWND hWindow)
+{
+    ApplyUiFont(hWindow);
+    ApplyTitleFont(hWindow);
+    ApplySnailIcon(hWindow);
+
+} /* ApplyDpiResources */
+
+static VOID BuildControls(_In_opt_ HWND hWindow)
+{
+    SIZE_T iIndex = 0;
+
+    if (NULL == hWindow)
     {
         goto EXIT_BUILD_CONTROLS;
     }
 
     /* The tab control first, so every control built after it sits above it in
        z order. Reverse the two and the frame paints over the form. */
-    hTabs = AddTabs(hWindow);
+    AddTabs(hWindow);
 
-    Panel.left   = MARGIN;
-    Panel.top    = MARGIN;
-    Panel.right  = MARGIN + CLIENT_W - 2 * MARGIN;
-    Panel.bottom = MARGIN + TABS_H;
+    AddCtl(hWindow, 0, WND_CLASS_STATIC, NULL, WS_CHILD | SS_ICON, IDC_SNAIL);
+    AddCtl(hWindow, 0, WND_CLASS_STATIC, PROJ_NAME, WS_CHILD | SS_CENTERIMAGE, IDC_TITLE);
 
-    /* Turns the control rectangle into the usable area inside it. Hard coding
-       the tab row height instead would break on a different DPI or theme. */
-    if (NULL != hTabs)
+    for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
     {
-        TabCtrl_AdjustRect(hTabs, FALSE, &Panel);
+        AddCtl(hWindow,
+               0,
+               WND_CLASS_STATIC,
+               g_aFields[iIndex].pszLabel,
+               WS_CHILD | SS_CENTERIMAGE,
+               g_aFields[iIndex].iLabelId);
+        AddCtl(hWindow,
+               WS_EX_CLIENTEDGE,
+               WND_CLASS_EDIT,
+               g_aFields[iIndex].pszInitial,
+               WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
+               g_aFields[iIndex].iCtlId);
     }
 
-    x      = Panel.left + PANEL_PAD;
-    y      = Panel.top + PANEL_PAD;
-    iWidth = (Panel.right - Panel.left) - 2 * PANEL_PAD;
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_BUTTON,
+           CAPTION_START,
+           WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+           IDC_START);
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_BUTTON,
+           CAPTION_STOP,
+           WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+           IDC_STOP);
 
-    AddHeader(hWindow, hInstance, x, iWidth, &y);
+    AddCtl(hWindow,
+           WS_EX_CLIENTEDGE,
+           WND_CLASS_EDIT,
+           HelpUsageText(),
+           WS_CHILD | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY,
+           IDC_HELP_TEXT);
+    AddCtl(hWindow,
+           WS_EX_CLIENTEDGE,
+           WND_CLASS_EDIT,
+           HelpAboutText(),
+           WS_CHILD | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY,
+           IDC_ABOUT_TEXT);
 
-    AddField(hWindow,
-             LABEL_LISTEN_ADDR,
-             IDC_LABEL_LISTEN_ADDR,
-             IDC_LISTEN_ADDR,
-             DEFAULT_LISTEN_ADDR,
-             x,
-             &y);
-    AddField(hWindow,
-             LABEL_LISTEN_PORT,
-             IDC_LABEL_LISTEN_PORT,
-             IDC_LISTEN_PORT,
-             DEFAULT_LISTEN_PORT,
-             x,
-             &y);
-    AddField(hWindow,
-             LABEL_TARGET_ADDR,
-             IDC_LABEL_TARGET_ADDR,
-             IDC_TARGET_ADDR,
-             DEFAULT_TARGET_ADDR,
-             x,
-             &y);
-    AddField(hWindow,
-             LABEL_TARGET_PORT,
-             IDC_LABEL_TARGET_PORT,
-             IDC_TARGET_PORT,
-             DEFAULT_TARGET_PORT,
-             x,
-             &y);
-    AddField(hWindow, LABEL_LATENCY, IDC_LABEL_LATENCY, IDC_LATENCY, DEFAULT_LATENCY, x, &y);
+    /* SS_LEFT and several lines rather than SS_PATHELLIPSIS and one: an
+       ellipsis would cut off the session counters at the end. */
+    AddCtl(hWindow, 0, WND_CLASS_STATIC, MSG_IDLE, WS_CHILD | WS_VISIBLE | SS_LEFT, IDC_STATUS);
 
-    AddButton(hWindow, CAPTION_START, IDC_START, x + LABEL_W, y);
-    AddButton(hWindow, CAPTION_STOP, IDC_STOP, x + LABEL_W + BUTTON_W + BUTTON_GAP, y);
-
-    AddTextPanel(hWindow, IDC_HELP_TEXT, HelpUsageText(), &Panel);
-    AddTextPanel(hWindow, IDC_ABOUT_TEXT, HelpAboutText(), &Panel);
-
-    /* Outside the tab control on purpose, so the connection count stays
-       readable while the Help tab is open.
-
-       SS_LEFT and STATUS_H rather than SS_PATHELLIPSIS and one row: the
-       status text is an address pair, a latency and the session counters,
-       which does not fit this window's width on one line, and an ellipsis
-       would cut off the counters. */
-    CreateWindowExW(0,
-                    WND_CLASS_STATIC,
-                    MSG_IDLE,
-                    WS_CHILD | WS_VISIBLE | SS_LEFT,
-                    MARGIN,
-                    MARGIN + TABS_H + ROW_GAP,
-                    CLIENT_W - 2 * MARGIN,
-                    STATUS_H,
-                    hWindow,
-                    (HMENU)(INT_PTR)IDC_STATUS,
-                    NULL,
-                    NULL);
-
-    ApplyUiFont(hWindow);
-    ApplyTitleFont(hWindow);
+    ApplyDpiResources(hWindow);
 
 EXIT_BUILD_CONTROLS:
 

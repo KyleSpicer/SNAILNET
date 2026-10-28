@@ -180,7 +180,10 @@ Issues and pull requests are welcome.
 2. Keep the conventions above; `pre-commit` will catch formatting.
 3. Build clean at `/W4`, for both x64 configurations.
 4. Run the test suite before opening the pull request.
-5. Reference the issue in the pull request description with `Closes #12`.
+5. Add a line to `CHANGELOG.md` for any change a user would notice. New
+   entries go under the top heading; if that heading is a released
+   version, add `## Unreleased` above it first.
+6. Reference the issue in the pull request description with `Closes #12`.
 
 ## Releases
 
@@ -193,6 +196,7 @@ When cutting a release, bump the version in all of these together:
 - `README.md` (the heading)
 - `Docs/userguide.md` (the `Version` line under the title)
 - `Tests/pyproject.toml` and `Tests/docs/conf.py` (`release`)
+- `CHANGELOG.md` (rename the top heading to `## x.y.z - YYYY-MM-DD`)
 
 ### What the release package contains
 

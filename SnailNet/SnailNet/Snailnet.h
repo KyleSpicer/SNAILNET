@@ -124,11 +124,14 @@ typedef enum _SNAILNET_TAB_INDEX
 } SNAILNET_TAB_INDEX,
     *PSNAILNET_TAB_INDEX;
 
+//
+// Sizes at 96 DPI; Ui.c scales them to the window's DPI. CLIENT_W and
+// CLIENT_H are the starting and smallest client area.
+//
 typedef enum _SNAILNET_LAYOUT
 {
     MARGIN     = 16,
     LABEL_W    = 150,
-    FIELD_W    = 210,
     ROW_H      = 32,
     ROW_GAP    = 10,
     BUTTON_W   = 110,
@@ -137,7 +140,6 @@ typedef enum _SNAILNET_LAYOUT
     ICON_SIZE  = 64,
     HEADER_H   = 112,
     PANEL_PAD  = 8,
-    TABS_H     = 410,
     STATUS_H   = 92, // four lines: three of detail plus one for an error
     CLIENT_W   = 440,
     CLIENT_H   = 544
