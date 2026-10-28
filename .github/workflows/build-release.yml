@@ -30,7 +30,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build SnailNet
         id: build-release
@@ -59,10 +59,10 @@ jobs:
     needs: build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download the executable
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: snailnet-windows-${{ env.PLATFORM }}
           path: SnailNet/Build/${{ env.PLATFORM }}/${{ env.CONFIGURATION }}
@@ -91,7 +91,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Publish the user guide
         uses: KyleSpicer/GitOps/actions/userguide-pdf@main
@@ -107,19 +107,19 @@ jobs:
       contents: write
     steps:
       - name: Download the executable
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: snailnet-windows-${{ env.PLATFORM }}
           path: dist
 
       - name: Download the user guide
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: userguide
           path: dist
 
       - name: Download the test report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cli-test-report
           path: dist
