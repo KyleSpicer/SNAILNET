@@ -84,6 +84,7 @@ There is a file-by-file breakdown in the
 | [Docs/userguide.md](Docs/userguide.md) | Anyone running SnailNet | The GUI, command line flags, worked examples, troubleshooting. Rendered to PDF for the release package |
 | [Docs/developerguide.md](Docs/developerguide.md) | Contributors | Building, project settings, architecture, coding conventions, releases |
 | [Docs/testguide.md](Docs/testguide.md) | Contributors | Running the test suite, reading its output, what each test proves |
+| [CHANGELOG.md](CHANGELOG.md) | Everyone | What changed in each release |
 
 Behavior that users can see, such as flags, defaults, and examples, is
 documented once in the User Guide. The other guides link to it rather than

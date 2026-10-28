@@ -66,7 +66,8 @@ clients can be relayed at once without affecting each other's timing.
 ## Using the window
 
 The window has three tabs: **Relay**, where you set it up and run it;
-**Help**, a short version of this guide; and **About**.
+**Help**, a short version of this guide; and **About**. You can resize or
+maximize it, and the fields widen to fit.
 
 On the **Relay** tab, fill in five fields:
 
