@@ -83,6 +83,11 @@ static INT RunGui(VOID)
        look like a plain GUI app after a brief, unavoidable flash. */
     (VOID) ShowWindow(GetConsoleWindow(), SW_HIDE);
 
+    /* Before any window exists. Windows then scales the frame and common
+       controls itself, and Ui.c scales the layout, instead of stretching a
+       96 DPI bitmap of the window. */
+    (VOID) SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     hWindow = WindowCreate(GetModuleHandleW(NULL), SW_SHOWDEFAULT, &iStatus);
 
     if (NULL == hWindow)
