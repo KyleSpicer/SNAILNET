@@ -180,23 +180,26 @@ Issues and pull requests are welcome.
 2. Keep the conventions above; `pre-commit` will catch formatting.
 3. Build clean at `/W4`, for both x64 configurations.
 4. Run the test suite before opening the pull request.
-5. Add a line to `CHANGELOG.md` for any change a user would notice. New
-   entries go under the top heading; if that heading is a released
-   version, add `## Unreleased` above it first.
+5. Add a line under **Release notes** in `Docs/userguide.md` for any change
+   a user would notice. New entries go under the top version heading; if
+   that heading is a released version, add `### Unreleased` above it first.
 6. Reference the issue in the pull request description with `Closes #12`.
 
 ## Releases
 
-Releases are tagged `vMAJOR.MINOR.PATCH`. From v1.0.0 on, the command line
+Releases are tagged `vMAJOR.MINOR.PATCH`, following
+[Semantic Versioning](https://semver.org/). From v1.0.0 on, the command line
 flags, their defaults, and the exit codes are public interface: changing any
 of them is a major version bump.
 
 When cutting a release, bump the version in all of these together:
 
 - `README.md` (the heading)
-- `Docs/userguide.md` (the `Version` line under the title)
+- `Docs/userguide.md` (the `Version` line under the title, and the top
+  heading under Release notes, renamed to `### x.y.z - YYYY-MM-DD`)
+- `SnailNet/SnailNet/Version.h` (the three numbers and the string; these
+  become the version shown in the executable's file properties)
 - `Tests/pyproject.toml` and `Tests/docs/conf.py` (`release`)
-- `CHANGELOG.md` (rename the top heading to `## x.y.z - YYYY-MM-DD`)
 
 ### What the release package contains
 

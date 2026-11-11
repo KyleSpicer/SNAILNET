@@ -1,0 +1,90 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Cli.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="Commands.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="Help.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="Main.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="Relay.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="Ui.c">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Cli.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Commands.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Help.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Relay.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Snailnet.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Ui.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Resource.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Version.h">
+      <Filter>src</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\Docs\image.png">
+      <Filter>repo_files</Filter>
+    </Image>
+    <Image Include="..\..\Docs\Images\snail.ico">
+      <Filter>repo_files</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\LICENSE">
+      <Filter>repo_files</Filter>
+    </None>
+    <None Include="..\..\README.md">
+      <Filter>repo_files</Filter>
+    </None>
+    <None Include="..\..\Docs\Images\make_snail_smooth.py">
+      <Filter>repo_files</Filter>
+    </None>
+    <None Include="..\..\.pre-commit-config.yaml">
+      <Filter>repo_files</Filter>
+    </None>
+    <None Include="..\..\.gitignore">
+      <Filter>repo_files</Filter>
+    </None>
+    <None Include="..\..\.clang-format">
+      <Filter>repo_files</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{6374e7da-d27e-47ba-94fe-66cdfa15cd12}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="repo_files">
+      <UniqueIdentifier>{c49adce9-626b-4367-b6ef-bdd9aa6a15f9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Snailnet.rc">
+      <Filter>src</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>
