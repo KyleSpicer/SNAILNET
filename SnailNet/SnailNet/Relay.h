@@ -36,7 +36,6 @@ typedef enum _RELAY_LIMITS
 {
     RELAY_ADDR_CCH     = 64,      /**< Characters in an address field */
     RELAY_PORT_CCH     = 8,       /**< Characters in a port field */
-    RELAY_MAX_SESSIONS = 64,      /**< Concurrent clients; MAXIMUM_WAIT_OBJECTS */
     RELAY_CHUNK_CB     = 16384,   /**< Bytes read per recv */
     RELAY_QUEUE_MAX_CB = 1048576, /**< Back pressure limit per direction */
     RELAY_ACCEPT_MS    = 250,     /**< Accept wait slice */
@@ -44,6 +43,12 @@ typedef enum _RELAY_LIMITS
     RELAY_NO_DELAY     = 0,       /**< Latency for an undelayed direction */
     RELAY_DRAIN_MS     = 5000,    /**< Total time allowed to flush a queue */
     RELAY_DRAIN_SLICE  = 100,     /**< Retry interval while flushing */
+
+    /** Most clients relayed at once; extras are closed on accept. Caps memory
+        (~3 MB per session: thread stack plus both queues), not a Windows
+        limit. Handles are waited on one at a time, so MAXIMUM_WAIT_OBJECTS
+        does not apply. */
+    RELAY_MAX_SESSIONS = 64,
 
     /** Upper bound on how long SessionPump ever waits on the session's events
         in one pass, even when both directions look like they have nothing to

@@ -30,7 +30,7 @@
 #include "Snailnet.h"
 #include "Ui.h"
 
-#define COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
+#define COUNT_OF(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 /** One labelled edit box on the Relay tab. */
 typedef struct _FIELD_DEF
@@ -56,6 +56,7 @@ static CONST FIELD_DEF g_aFields[] = {
 /** Controls belonging to each tab, shown and hidden as a group. */
 static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
                                     IDC_TITLE,
+                                    IDC_VERSION,
                                     IDC_LABEL_LISTEN_ADDR,
                                     IDC_LISTEN_ADDR,
                                     IDC_LABEL_LISTEN_PORT,
@@ -148,13 +149,17 @@ static VOID GetMinWindowSize(_In_opt_ HWND hWindow, _Out_opt_ PSIZE pSize);
  *
  * @param hWindow Main window. May be NULL.
  * @param iCtlId  Control identifier.
- * @param x       Left edge.
- * @param y       Top edge.
- * @param cx      Width.
- * @param cy      Height.
+ * @param iPosX   Left edge.
+ * @param iPosY   Top edge.
+ * @param iWidth  Width.
+ * @param iHeight Height.
  */
-static VOID
-PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy);
+static VOID PlaceCtl(_In_opt_ HWND hWindow,
+                     _In_ INT      iCtlId,
+                     _In_ INT      iPosX,
+                     _In_ INT      iPosY,
+                     _In_ INT      iWidth,
+                     _In_ INT      iHeight);
 
 /**
  * @brief Positions every control for the current client size and DPI.
@@ -213,10 +218,11 @@ static VOID BuildControls(_In_opt_ HWND hWindow);
 
 HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_ PINT piStatus)
 {
-    INITCOMMONCONTROLSEX Controls   = {0};
-    SIZE                 WindowSize = {0};
-    HWND                 hWindow    = NULL;
-    INT                  iStatus    = SNAILNET_SUCCESS;
+    INITCOMMONCONTROLSEX Controls    = {0};
+    SIZE                 WindowSize  = {0};
+    HWND                 hWindow     = NULL;
+    INT                  iStatus     = SNAILNET_SUCCESS;
+    BOOL                 bRegistered = FALSE;
 
     if (NULL == hInstance)
     {
@@ -230,7 +236,9 @@ HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_
     Controls.dwICC  = ICC_TAB_CLASSES;
     (VOID) InitCommonControlsEx(&Controls);
 
-    if (!RegisterMainClass(hInstance))
+    bRegistered = RegisterMainClass(hInstance);
+
+    if (!bRegistered)
     {
         MessageBoxW(NULL, MSG_FAIL_REGISTER, PROJ_NAME, MB_ICONERROR);
         iStatus = SNAILNET_FAIL_TO_REGISTER;
@@ -627,8 +635,12 @@ EXIT_GET_MIN_SIZE:
 
 } /* GetMinWindowSize */
 
-static VOID
-PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy)
+static VOID PlaceCtl(_In_opt_ HWND hWindow,
+                     _In_ INT      iCtlId,
+                     _In_ INT      iPosX,
+                     _In_ INT      iPosY,
+                     _In_ INT      iWidth,
+                     _In_ INT      iHeight)
 {
     HWND hCtl = NULL;
 
@@ -641,7 +653,7 @@ PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ IN
 
     if (NULL != hCtl)
     {
-        (VOID) MoveWindow(hCtl, x, y, cx, cy, FALSE);
+        (VOID) MoveWindow(hCtl, iPosX, iPosY, iWidth, iHeight, FALSE);
     }
 
 EXIT_PLACE_CTL:
@@ -664,10 +676,18 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
     INT    iRowH      = 0;
     INT    iButtonW   = 0;
     INT    iWidth     = 0;
-    INT    x          = 0;
-    INT    y          = 0;
+    INT    iPosX      = 0;
+    INT    iPosY      = 0;
+    BOOL   bGotRect   = FALSE;
 
-    if ((NULL == hWindow) || !GetClientRect(hWindow, &Client))
+    if (NULL == hWindow)
+    {
+        goto EXIT_LAYOUT;
+    }
+
+    bGotRect = GetClientRect(hWindow, &Client);
+
+    if (!bGotRect)
     {
         goto EXIT_LAYOUT;
     }
@@ -718,8 +738,8 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
              Panel.right - Panel.left,
              Panel.bottom - Panel.top);
 
-    x        = Panel.left + Scale(PANEL_PAD, uDpi);
-    y        = Panel.top + Scale(PANEL_PAD, uDpi);
+    iPosX    = Panel.left + Scale(PANEL_PAD, uDpi);
+    iPosY    = Panel.top + Scale(PANEL_PAD, uDpi);
     iWidth   = (Panel.right - Panel.left) - Scale(2 * PANEL_PAD, uDpi);
     iIcon    = Scale(ICON_SIZE, uDpi);
     iGap     = Scale(BUTTON_GAP, uDpi);
@@ -727,20 +747,39 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
     iRowH    = Scale(ROW_H, uDpi);
     iButtonW = Scale(BUTTON_W, uDpi);
 
-    PlaceCtl(hWindow, IDC_SNAIL, x, y, iIcon, iIcon);
-    PlaceCtl(hWindow, IDC_TITLE, x + iIcon + iGap, y, iWidth - iIcon - iGap, iIcon);
-    y += Scale(HEADER_H, uDpi);
+    PlaceCtl(hWindow, IDC_SNAIL, iPosX, iPosY, iIcon, iIcon);
+    PlaceCtl(hWindow, IDC_TITLE, iPosX + iIcon + iGap, iPosY, iWidth - iIcon - iGap, iIcon);
+
+    /* Directly under the title, lined up with its left edge, in the space
+       HEADER_H leaves below the icon row. */
+    PlaceCtl(hWindow,
+             IDC_VERSION,
+             iPosX + iIcon + iGap,
+             iPosY + iIcon,
+             iWidth - iIcon - iGap,
+             Scale(VERSION_H, uDpi));
+    iPosY += Scale(HEADER_H, uDpi);
 
     /* Labels keep their width; the edit boxes take what is left. */
     for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
     {
-        PlaceCtl(hWindow, g_aFields[iIndex].iLabelId, x, y, iLabelW, iRowH);
-        PlaceCtl(hWindow, g_aFields[iIndex].iCtlId, x + iLabelW, y, iWidth - iLabelW, iRowH);
-        y += iRowH + Scale(ROW_GAP, uDpi);
+        PlaceCtl(hWindow, g_aFields[iIndex].iLabelId, iPosX, iPosY, iLabelW, iRowH);
+        PlaceCtl(hWindow,
+                 g_aFields[iIndex].iCtlId,
+                 iPosX + iLabelW,
+                 iPosY,
+                 iWidth - iLabelW,
+                 iRowH);
+        iPosY += iRowH + Scale(ROW_GAP, uDpi);
     }
 
-    PlaceCtl(hWindow, IDC_START, x + iLabelW, y, iButtonW, Scale(BUTTON_H, uDpi));
-    PlaceCtl(hWindow, IDC_STOP, x + iLabelW + iButtonW + iGap, y, iButtonW, Scale(BUTTON_H, uDpi));
+    PlaceCtl(hWindow, IDC_START, iPosX + iLabelW, iPosY, iButtonW, Scale(BUTTON_H, uDpi));
+    PlaceCtl(hWindow,
+             IDC_STOP,
+             iPosX + iLabelW + iButtonW + iGap,
+             iPosY,
+             iButtonW,
+             Scale(BUTTON_H, uDpi));
 
     /* One repaint for the whole move. The transparent labels do not erase
        where they were, so the background has to be redrawn under them. */
@@ -766,8 +805,9 @@ static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 
 static VOID ApplyUiFont(_In_opt_ HWND hWindow)
 {
-    NONCLIENTMETRICSW Metrics = {0};
-    HFONT             hFont   = NULL;
+    NONCLIENTMETRICSW Metrics  = {0};
+    HFONT             hFont    = NULL;
+    BOOL              bMetrics = FALSE;
 
     if (NULL == hWindow)
     {
@@ -776,7 +816,9 @@ static VOID ApplyUiFont(_In_opt_ HWND hWindow)
 
     Metrics.cbSize = sizeof(Metrics);
 
-    if (!SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(Metrics), &Metrics, 0))
+    bMetrics = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(Metrics), &Metrics, 0);
+
+    if (!bMetrics)
     {
         goto EXIT_APPLY_UI_FONT;
     }
@@ -910,6 +952,7 @@ static VOID BuildControls(_In_opt_ HWND hWindow)
 
     AddCtl(hWindow, 0, WND_CLASS_STATIC, NULL, WS_CHILD | SS_ICON, IDC_SNAIL);
     AddCtl(hWindow, 0, WND_CLASS_STATIC, PROJ_NAME, WS_CHILD | SS_CENTERIMAGE, IDC_TITLE);
+    AddCtl(hWindow, 0, WND_CLASS_STATIC, LABEL_VERSION, WS_CHILD | SS_NOPREFIX, IDC_VERSION);
 
     for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
     {

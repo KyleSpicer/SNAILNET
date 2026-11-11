@@ -19,7 +19,10 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
+#include "Version.h"
+
 #define PROJ_NAME L"SnailNet"
+#define LABEL_VERSION L"Version " SNAILNET_VERSION_WSTR
 #define WINDOW_CLASS L"SnailNetWindow"
 #define FONT_HEIGHT (-17)
 #define TITLE_FONT_HEIGHT (-40)
@@ -61,6 +64,7 @@
 #define TAB_CAPTION_ABOUT L"About"
 
 #define FMT_BAD_PORT L"%s must be between %u and %u."
+#define FMT_ADDR_TOO_LONG L"%s must be at most %u characters."
 #define FMT_START_FAILED L"Could not start: %s"
 
 // Converts a parsed port number back to text for RELAY_CONFIG. Printing the
@@ -112,7 +116,13 @@ typedef enum _SNAILNET_CTL_ID
     IDC_LABEL_LISTEN_PORT,
     IDC_LABEL_TARGET_ADDR,
     IDC_LABEL_TARGET_PORT,
-    IDC_LABEL_LATENCY
+    IDC_LABEL_LATENCY,
+
+    //
+    // Added last so every identifier above keeps its value; the test
+    // harness addresses controls by number.
+    //
+    IDC_VERSION
 } SNAILNET_CTL_ID,
     *PSNAILNET_CTL_ID;
 
@@ -139,6 +149,7 @@ typedef enum _SNAILNET_LAYOUT
     BUTTON_GAP = 14,
     ICON_SIZE  = 64,
     HEADER_H   = 112,
+    VERSION_H  = 20, // the version line under the title, inside HEADER_H
     PANEL_PAD  = 8,
     STATUS_H   = 92, // four lines: three of detail plus one for an error
     CLIENT_W   = 440,

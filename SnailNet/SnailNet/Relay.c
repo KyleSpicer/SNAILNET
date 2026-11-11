@@ -220,6 +220,7 @@ RelayStart(_In_ CONST RELAY_CONFIG   *pConfig,
 {
     SOCKET_STATUS SockStatus = SOCKET_STATUS_ERROR;
     DWORD         dwThreadId = 0;
+    LONG          lRunning   = 0;
     BOOL          bOwnsState = FALSE;
 
     if (NULL == pConfig)
@@ -228,7 +229,9 @@ RelayStart(_In_ CONST RELAY_CONFIG   *pConfig,
         goto EXIT_RELAY_START;
     }
 
-    if (0 != InterlockedCompareExchange(&g_lRunning, 0, 0))
+    lRunning = InterlockedCompareExchange(&g_lRunning, 0, 0);
+
+    if (0 != lRunning)
     {
         SockStatus = SOCKET_STATUS_ERROR;
         goto EXIT_RELAY_START;
@@ -385,12 +388,15 @@ static DWORD WINAPI AcceptThreadProc(_In_ LPVOID lpParameter)
     HANDLE         hThread    = NULL;
     LONG           lSlot      = -1;
     DWORD          dwThreadId = 0;
+    DWORD          dwAbort    = 0;
 
     (VOID) lpParameter;
 
     for (;;)
     {
-        if (WAIT_OBJECT_0 == WaitForSingleObject(g_hAbort, 0))
+        dwAbort = WaitForSingleObject(g_hAbort, 0);
+
+        if (WAIT_OBJECT_0 == dwAbort)
         {
             break;
         }
@@ -530,6 +536,9 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
     DWORD     dwWaitMs                = 0;
     DWORD     dwOtherMs               = 0;
     DWORD     dwWait                  = 0;
+    DWORD     dwAbort                 = 0;
+    BOOL      bToTargetDone           = FALSE;
+    BOOL      bToClientDone           = FALSE;
 
     if (NULL == pSession)
     {
@@ -567,7 +576,10 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
         DirectionFinish(&ToTarget);
         DirectionFinish(&ToClient);
 
-        if (DirectionIsDone(&ToTarget) && DirectionIsDone(&ToClient))
+        bToTargetDone = DirectionIsDone(&ToTarget);
+        bToClientDone = DirectionIsDone(&ToClient);
+
+        if (bToTargetDone && bToClientDone)
         {
             break;
         }
@@ -627,7 +639,9 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
     /* Anything still queued here is owed to a peer that is still listening,
        so it gets delivered rather than freed. An abort skips this on purpose:
        discarding in-flight bytes is the whole point of a stop button. */
-    if (WAIT_OBJECT_0 != WaitForSingleObject(g_hAbort, 0))
+    dwAbort = WaitForSingleObject(g_hAbort, 0);
+
+    if (WAIT_OBJECT_0 != dwAbort)
     {
         DirectionDrain(&ToTarget, g_hAbort);
         DirectionDrain(&ToClient, g_hAbort);
@@ -652,6 +666,7 @@ static LONG SessionTableClaim(VOID)
 {
     LONG  lResult = -1;
     DWORD dwIndex = 0;
+    DWORD dwWait  = 0;
 
     if (!g_bSessionLockReady)
     {
@@ -669,7 +684,9 @@ static LONG SessionTableClaim(VOID)
             continue;
         }
 
-        if (WAIT_OBJECT_0 == WaitForSingleObject(g_ahSessions[dwIndex], 0))
+        dwWait = WaitForSingleObject(g_ahSessions[dwIndex], 0);
+
+        if (WAIT_OBJECT_0 == dwWait)
         {
             (VOID) CloseHandle(g_ahSessions[dwIndex]);
             g_ahSessions[dwIndex] = NULL;
@@ -1015,8 +1032,10 @@ EXIT_DIR_FINISH:
 static VOID DirectionDrain(_Inout_opt_ PRELAY_DIR pDir, _In_opt_ HANDLE hAbort)
 {
     ULONGLONG ullDeadline = 0;
+    ULONGLONG ullNow      = 0;
     LONG      lEvents     = 0;
     DWORD     dwWaitMs    = 0;
+    DWORD     dwAbort     = 0;
 
     if (NULL == pDir)
     {
@@ -1034,7 +1053,9 @@ static VOID DirectionDrain(_Inout_opt_ PRELAY_DIR pDir, _In_opt_ HANDLE hAbort)
             break;
         }
 
-        if (GetTickCount64() >= ullDeadline)
+        ullNow = GetTickCount64();
+
+        if (ullNow >= ullDeadline)
         {
             break;
         }
@@ -1051,9 +1072,14 @@ static VOID DirectionDrain(_Inout_opt_ PRELAY_DIR pDir, _In_opt_ HANDLE hAbort)
 
         (VOID) SocketConnWait(pDir->pSink, dwWaitMs, hAbort, &lEvents);
 
-        if ((NULL != hAbort) && (WAIT_OBJECT_0 == WaitForSingleObject(hAbort, 0)))
+        if (NULL != hAbort)
         {
-            break;
+            dwAbort = WaitForSingleObject(hAbort, 0);
+
+            if (WAIT_OBJECT_0 == dwAbort)
+            {
+                break;
+            }
         }
 
         /* Retry the send regardless of what fired. A wasted attempt costs one

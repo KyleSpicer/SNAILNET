@@ -86,7 +86,7 @@ static CONST WCHAR g_szUsage[] =
 
 /** @brief Body text for the About tab. */
 static CONST WCHAR g_szAbout[] =
-    L"SnailNet\r\n"
+    L"SnailNet " SNAILNET_VERSION_WSTR L"\r\n"
     L"\r\n"
     L"A TCP relay that adds a fixed, configurable delay to traffic on its way "
     L"back to the client. Built for testing how software behaves when the "

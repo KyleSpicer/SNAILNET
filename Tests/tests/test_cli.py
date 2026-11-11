@@ -54,12 +54,15 @@ def _connect_when_ready(cli: CliProcess, port: int) -> socket.socket:
     pytest.fail("could not connect within the startup window")
 
 
-def test_help_prints_usage_and_exits_clean(exe_path):
-    """--help documents every flag and starts nothing."""
+def test_help_prints_usage_and_exits_clean(exe_path, expected_version):
+    """--help names the version, documents every flag, and starts nothing."""
     with CliProcess(exe_path, ["--help"]) as cli:
         code, stdout, stderr = cli.wait()
 
     assert code == 0, f"--help exited {code}; stderr: {stderr!r}"
+    assert stdout.startswith(
+        f"SnailNet {expected_version}\n"
+    ), f"first line is not the version; stdout: {stdout[:80]!r}"
     assert "--listen-addr" in stdout
     assert "--listen-port" in stdout
     assert "--target-addr" in stdout
@@ -87,6 +90,8 @@ REJECTED_ARGS = [
     ("non numeric port", ["--listen-port", "abc"], "between"),
     ("non numeric latency", ["--latency", "soon"], "latency"),
     ("negative latency", ["--latency", "-5"], "latency"),
+    ("listen address too long", ["--listen-addr", "a" * 64], "at most 63"),
+    ("target address too long", ["--target-addr", "a" * 64], "at most 63"),
 ]
 
 
@@ -125,6 +130,35 @@ def test_blank_address_is_rejected(exe_path):
 
     assert code != 0
     assert "blank" in stderr.lower()
+
+
+def test_longest_address_is_not_rejected_for_length(exe_path, ports):
+    """A 63 character address, the most that fits, gets past the length check.
+
+    Pairs with the too-long cases above to pin the limit at exactly 63. The
+    name ends in the reserved ``.invalid`` domain, so it fails to resolve at
+    once. What matters is that it fails at resolution, not at the length
+    check, which shows it was passed on in full rather than cut short.
+    """
+    longest = "a" * 55 + ".invalid"
+    assert len(longest) == 63
+
+    with CliProcess(
+        exe_path,
+        [
+            "--listen-port",
+            str(ports.listen),
+            "--target-addr",
+            longest,
+            "--target-port",
+            str(ports.target),
+        ],
+    ) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0, "an unresolvable target should not start"
+    assert "at most" not in stderr, f"rejected for length; stderr: {stderr!r}"
+    assert "could not start" in stderr.lower(), f"stderr: {stderr!r}"
 
 
 def test_relay_works_and_reports_sessions(exe_path, ports):
@@ -192,6 +226,82 @@ def test_omitted_flags_use_the_gui_defaults(exe_path, ports):
     assert (
         elapsed_ms >= 200
     ), f"round trip was {elapsed_ms:.0f} ms; default latency may be unused"
+
+
+def _localhost_resolves_ipv6_first(port: int) -> bool:
+    """Reports whether ``localhost`` resolves to IPv6 before IPv4 here.
+
+    Uses the same resolver SnailNet does, so the answer matches the order
+    the relay sees. Windows normally gives ``::1`` then ``127.0.0.1``.
+
+    :param port: Port to resolve alongside the name; any will do.
+    :return: True if the first result is IPv6 and an IPv4 result follows.
+    """
+    try:
+        results = socket.getaddrinfo(
+            "localhost", port, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except OSError:
+        return False
+
+    families = [family for family, *_rest in results]
+    return (
+        len(families) > 1
+        and families[0] == socket.AF_INET6
+        and socket.AF_INET in families
+    )
+
+
+def test_target_hostname_falls_back_to_next_address(exe_path, ports):
+    """A target name that resolves to several addresses tries each in turn.
+
+    ``localhost`` resolves to ``::1`` first, but EchoServer listens only on
+    ``127.0.0.1``, so the first address is refused. The relay has to move on
+    to the second rather than drop the session. Before it did, every client
+    was disconnected with nothing echoed.
+
+    Skipped where ``localhost`` does not resolve to IPv6 first, since the
+    first address would then succeed and the test would prove nothing.
+    """
+    if not _localhost_resolves_ipv6_first(ports.target):
+        pytest.skip("localhost does not resolve to ::1 before 127.0.0.1 here")
+
+    data = payload(4 * 1024, seed=31)
+
+    with (
+        EchoServer(ports.target),
+        CliProcess(
+            exe_path,
+            [
+                "--listen-port",
+                str(ports.listen),
+                "--target-addr",
+                "localhost",
+                "--target-port",
+                str(ports.target),
+                "--latency",
+                "0",
+            ],
+        ) as cli,
+    ):
+        with _connect_when_ready(cli, ports.listen) as client:
+            client.sendall(data)
+            client.shutdown(socket.SHUT_WR)
+
+            try:
+                total, digest = read_to_eof(client, timeout=20.0)
+            except ConnectionResetError:
+                total, digest = 0, ""
+
+        _stop(cli)
+        _code, stdout, stderr = cli.wait(timeout=20)
+
+    assert total == len(data), (
+        f"echoed {total} bytes of {len(data)}; the relay likely tried only ::1. "
+        f"stdout: {stdout!r} stderr: {stderr!r}"
+    )
+    assert digest == digest_of(data), "echoed payload differs from what was sent"
+    assert "Session started (1 active, 1 total)" in stdout
 
 
 @pytest.mark.skipif(

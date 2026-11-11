@@ -68,15 +68,17 @@ clients can be relayed at once without affecting each other's timing.
 
 The window has three tabs: **Relay**, where you set it up and run it;
 **Help**, a short version of this guide; and **About**. You can resize or
-maximize it, and the fields widen to fit.
+maximize it, and the fields widen to fit. The version number is shown under
+the SnailNet title, at the top of the About tab, and on the first line of
+`SnailNet.exe --help`.
 
 On the **Relay** tab, fill in five fields:
 
 | Field | Meaning | Default |
 |---|---|---|
-| Listen address | Where SnailNet accepts connections. `127.0.0.1` keeps it on this machine; `0.0.0.0` accepts connections from the network | `127.0.0.1` |
+| Listen address | Where SnailNet accepts connections. `127.0.0.1` keeps it on this machine; `0.0.0.0` accepts connections from the network. Up to 63 characters | `127.0.0.1` |
 | Listen port | The port your client connects to | `8080` |
-| Target address | The real server, as an IP address or hostname | `127.0.0.1` |
+| Target address | The real server, as an IP address or hostname, up to 63 characters | `127.0.0.1` |
 | Target port | The real server's port | `80` |
 | Latency (ms) | Delay applied to traffic on its way back to the client. `0` makes SnailNet a plain relay | `250` |
 
@@ -310,6 +312,18 @@ count in the status block rises and falls as they connect and disconnect.
   client connects, and that client is disconnected.
 - **Stop drops in-flight data.** Anything still held in the delay when you
   press Stop or Ctrl+C is discarded.
+- **Prefer `127.0.0.1` to `localhost`.** Windows resolves `localhost` to the
+  IPv6 address `::1` first and the IPv4 address `127.0.0.1` second, which
+  affects the two address fields differently:
+  - **Target address:** SnailNet tries each address in turn, so `localhost`
+    works. But if the real server listens only on `127.0.0.1`, the `::1`
+    attempt is refused first, and Windows takes about two seconds to report
+    a refusal. Every client connection then waits about two seconds before
+    any data moves. `127.0.0.1` connects at once.
+  - **Listen address:** SnailNet listens on one address only, so `localhost`
+    means `::1`. Clients that connect to `localhost` still reach it, but a
+    client that connects to `127.0.0.1` is refused. Use `127.0.0.1` here,
+    and point the client at the same address.
 
 ## Troubleshooting
 
@@ -320,6 +334,8 @@ count in the status block rises and falls as they connect and disconnect.
 | A remote client cannot connect at all | The firewall rule from the remote example is missing, or the two machines cannot reach each other on the network |
 | Start fails on a port you were just using | Windows can keep the previous socket for a short time after Stop. Wait a moment and try again |
 | The client connects but is disconnected immediately | Nothing is listening at the target address and port. Check that the real server is running and that you entered its port, not SnailNet's listen port |
+| Every connection takes about two seconds longer than the latency setting | The target address is `localhost` and the real server listens only on IPv4. Set Target address to `127.0.0.1`. See [Limits and behavior worth knowing](#limits-and-behavior-worth-knowing) |
+| Clients are refused, but Start succeeded | The listen address is `localhost`, which SnailNet listens on as IPv6 `::1`, and the client connects to `127.0.0.1`. Set Listen address to `127.0.0.1` |
 | Large transfers are slower than expected | See the throughput limit under [Limits and behavior worth knowing](#limits-and-behavior-worth-knowing). Lower the latency, or expect it |
 | The command line says "unrecognised argument" | Check the spelling against `SnailNet.exe --help`. Flags use two dashes |
 

@@ -187,6 +187,7 @@ suite finds or fills in the window.
 
 | Test | What it proves |
 |---|---|
+| `window_shows_the_version` | The version from `Version.h` appears under the title and at the top of the About tab |
 | `stop_returns_to_idle_and_frees_the_port` | Stop really releases the port, not just greys out the button |
 | `restart_on_the_same_port` | Start/Stop three times on one port. Windows blocks a rebind while the old socket lingers, so this is where that would show |
 | `stop_mid_transfer_does_not_hang` | Stop during a 32 MB transfer neither hangs nor crashes |
@@ -208,12 +209,14 @@ of zero is accepted (it turns SnailNet into a plain relay).
 
 | Test | What it proves |
 |---|---|
-| `help_prints_usage_and_exits_clean` | `--help` documents every flag and starts nothing |
+| `help_prints_usage_and_exits_clean` | `--help` opens with the version from `Version.h`, documents every flag, and starts nothing |
 | `help_aliases_match_long_form` | `-h` and `-?` behave the same as `--help` |
-| `bad_argument_is_rejected` | An unknown flag, a missing value, an out of range or non-numeric port, and bad latency are all reported on stderr with a non-zero exit, never a half start |
+| `bad_argument_is_rejected` | An unknown flag, a missing value, an out of range or non-numeric port, bad latency, and an address over 63 characters are all reported on stderr with a non-zero exit, never a half start |
 | `blank_address_is_rejected` | An address that is explicitly empty is refused, not quietly treated as a default |
+| `longest_address_is_not_rejected_for_length` | A 63 character address gets past the length check and fails only at resolution, so the limit sits at exactly 63 and nothing is cut short |
 | `relay_works_and_reports_sessions` | A real session through the CLI is byte exact, delayed one way, and the session start/end is printed with live counts |
 | `omitted_flags_use_the_gui_defaults` | Leaving a flag out falls back to the same default the GUI pre-fills, confirmed by timing, not just by reading the help text |
+| `target_hostname_falls_back_to_next_address` | A target of `localhost` reaches a server listening only on `127.0.0.1`: the refused `::1` address is skipped, not fatal. Takes about two seconds, because Windows is slow to report the refusal. Skips itself where `localhost` does not resolve to IPv6 first |
 | `console_signal_stops_cleanly` | A console signal stops the relay the same way the GUI's Stop button does, exits 0, and frees the port |
 
 `console_signal_stops_cleanly` sends Ctrl+Break, not Ctrl+C. Windows

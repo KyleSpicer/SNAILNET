@@ -50,6 +50,7 @@ add a new configuration or a new project to the solution:
 |---|---|---|
 | Runtime Library | `/MT` (Release), `/MTd` (Debug) | Links the CRT statically so the exe runs without the VC++ redistributable |
 | SubSystem | `Console` | The entry point is `wmain`, not `wWinMain`; see [Command line mode](#command-line-mode) for why |
+| C Language Standard | `/std:c17` | Pins the C dialect instead of MSVC's legacy C mode, and turns on the conforming preprocessor. Every source is C, so the C++ standard setting is left at its default |
 | Warning Level | `/W4` | Catches indirection and sign mismatches that `/W3` lets through |
 
 **If you add a static library to the project, it must use the same runtime
@@ -153,6 +154,16 @@ enforce, already in use throughout the C sources:
   a single `EXIT_FUNCTION_NAME:` label at the end and `goto` there on every
   early return, rather than returning from the middle. Look at any function
   in `Relay.c` or `Sockets.c` for the pattern.
+- **No function calls inside a condition.** Store the return value on its
+  own line, then test the variable: `hr = StringCchCopyW(...);` followed by
+  `if (FAILED(hr))`, never `if (FAILED(StringCchCopyW(...)))`. The same goes
+  for `while` and `switch`. Every result can then be read in a debugger, and
+  each line does one thing. Macros that only test a value, such as
+  `SOCKET_IS_ERROR(SockStatus)`, are fine.
+- **No names under three characters.** Variables, parameters and macro
+  parameters follow the Hungarian style used everywhere else: `hResult`,
+  not `hr`; `iIndex`, not `i`, even for a loop counter. Windows API struct
+  fields such as `POINT.x` keep their own names.
 - **Every public function is documented with a Doxygen `/** @brief */`
   comment** in its header, including parameter directions and what each
   return value means.
@@ -197,8 +208,10 @@ When cutting a release, bump the version in all of these together:
 - `README.md` (the heading)
 - `Docs/userguide.md` (the `Version` line under the title, and the top
   heading under Release notes, renamed to `### x.y.z - YYYY-MM-DD`)
-- `SnailNet/SnailNet/Version.h` (the three numbers and the string; these
-  become the version shown in the executable's file properties)
+- `SnailNet/SnailNet/Version.h` (the three numbers and the string). This
+  one file sets the version in the executable's file properties, the first
+  line of `--help`, the About tab, and the line under the window's title.
+  The tests read the expected version from it too
 - `Tests/pyproject.toml` and `Tests/docs/conf.py` (`release`)
 
 ### What the release package contains

@@ -74,9 +74,11 @@ INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
 
 static INT RunGui(VOID)
 {
-    HWND hWindow = NULL;
-    MSG  Message = {0};
-    INT  iStatus = SNAILNET_SUCCESS;
+    HWND hWindow    = NULL;
+    MSG  Message    = {0};
+    INT  iStatus    = SNAILNET_SUCCESS;
+    BOOL bGetResult = FALSE;
+    BOOL bHandled   = FALSE;
 
     /* A console subsystem binary gets a console on every launch, even one
        headed for the GUI. Hiding it at once makes a launch from Explorer
@@ -95,10 +97,20 @@ static INT RunGui(VOID)
         return iStatus;
     }
 
-    while (0 < GetMessageW(&Message, NULL, 0, 0))
+    for (;;)
     {
+        /* Zero is WM_QUIT and -1 is an error; either ends the loop. */
+        bGetResult = GetMessageW(&Message, NULL, 0, 0);
+
+        if (0 >= bGetResult)
+        {
+            break;
+        }
+
         /* IsDialogMessage gives us Tab navigation between the fields. */
-        if (!IsDialogMessageW(hWindow, &Message))
+        bHandled = IsDialogMessageW(hWindow, &Message);
+
+        if (!bHandled)
         {
             TranslateMessage(&Message);
             DispatchMessageW(&Message);
