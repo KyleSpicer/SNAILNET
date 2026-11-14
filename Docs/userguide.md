@@ -28,6 +28,15 @@ network or either program.
 
 **Requirements:** Windows 10 or later, 64-bit.
 
+SnailNet has been tested on these desktop versions of Windows:
+
+| Windows | Edition | Version | OS build |
+|---|---|---|---|
+| Windows 11 | Pro | 25H2 | 26200.9974 |
+| Windows 10 | Pro | 22H2 | 19045.6456 |
+
+To see your own version, press **Win+R**, type `winver`, and press Enter.
+
 SnailNet is a single file, `SnailNet.exe`. There is no installer and nothing
 else to install alongside it, not even the Visual C++ redistributable. Copy
 it anywhere and run it.
