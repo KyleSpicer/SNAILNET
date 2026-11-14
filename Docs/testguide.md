@@ -54,17 +54,18 @@ windows while the suite is running.
 A full run takes about 45 seconds and ends like this:
 
 ```text
-tests/test_cli.py::test_help_prints_usage_and_exits_clean PASSED          [  2%]
-tests/test_cli.py::test_help_aliases_match_long_form[-h] PASSED           [  4%]
+tests/test_cli.py::test_help_prints_usage_and_exits_clean PASSED          [  1%]
+tests/test_cli.py::test_help_aliases_match_long_form[-h] PASSED           [  2%]
 ...
 tests/test_validation.py::test_zero_latency_is_accepted PASSED            [100%]
 
-========================= 42 passed in 43.80s =========================
+==================== 75 passed, 1 skipped in 45.67s ====================
 ```
 
-`42 passed` is what you want. Run from a terminal without a console of its
-own (some task runners and CI setups), it is `41 passed, 1 skipped` instead,
-which is also fine; see
+No `failed` and no `error` is what you want. Two tests may skip themselves,
+and either skip is fine: `test_target_hostname_falls_back_to_next_address`
+where `localhost` does not resolve to IPv6 first, and
+`test_console_signal_stops_cleanly` where there is no console; see
 [Command line mode: `test_cli.py`](#command-line-mode-test_clipy). Anything
 else needs reading.
 
@@ -75,8 +76,8 @@ else needs reading.
 | `PASSED` | The test's checks all held |
 | `FAILED` | A check did not hold. Something is wrong with SnailNet, or with the test |
 | `ERROR` | The test could not run at all, usually a setup problem such as a missing executable |
-| `SKIPPED` | The test was deliberately not run. `-m "not slow"` does this on purpose; `test_console_signal_stops_cleanly` does it on its own when there is no console to test through |
-| `42 passed` | Count of tests, not of checks. Most tests make several assertions |
+| `SKIPPED` | The test was deliberately not run, either because of `-m "not slow"` or because the machine cannot run it (see above) |
+| `75 passed` | Count of tests, not of checks. Most tests make several assertions |
 
 The `[ 42%]` on the right is progress through the run, nothing more.
 
@@ -103,9 +104,8 @@ Read it bottom up:
 1. **`tests\test_correctness.py:77`**: where the check lives.
 2. **`assert 1499.5 < 400`**: the comparison that failed, with real numbers.
 3. **The message**: what that means in plain terms. Here, traffic heading
-   *to* the target was delayed by 1.5 seconds when it should not have been
-   delayed at all. SnailNet's delay is supposed to apply in one direction
-   only, so this says the delay is being applied in both.
+   *to* the target was delayed by 1.5 seconds when, with the default
+   direction, it should not have been delayed at all.
 
 Every assertion in this suite carries a message like that. The numbers in it
 are the actual measurements, so a failure usually tells you what broke
@@ -134,7 +134,8 @@ For the window (`app.py`), each test:
 
 1. Launches `SnailNet.exe`.
 2. Finds its window and waits for the controls to exist.
-3. Types into the five fields.
+3. Types into the five fields, and picks a **Delay applied** direction where
+   the test needs one other than the default.
 4. Presses **Start**.
 5. Opens real TCP connections through the relay and checks what comes out
    the other side.
@@ -164,8 +165,9 @@ on loopback, points SnailNet at them, and measures what actually arrives.
 
 ### Two details that are easy to break
 
-Fields are set by sending `WM_SETTEXT` to each control, and each window is
-matched to the process the suite launched. The docstrings in
+Fields are set by sending `WM_SETTEXT` to each control (and `CB_SETCURSEL`
+to the **Delay applied** list), and each window is matched to the process
+the suite launched. The docstrings in
 `Tests/snailnet_tests/app.py` explain why; read them before changing how the
 suite finds or fills in the window.
 
@@ -176,7 +178,9 @@ suite finds or fills in the window.
 | Test | What it proves |
 |---|---|
 | `roundtrip_is_byte_exact` | Data through the relay comes back unchanged |
-| `latency_applies_one_way` | The delay applies to target-to-client traffic only. Measured in **both** directions, so a delay applied twice fails rather than passing as "slow enough" |
+| `latency_applies_one_way` | With the default direction, the delay applies to target-to-client traffic only. Measured in **both** directions, so a delay applied twice fails rather than passing as "slow enough" |
+| `delay_list_defaults_to_client` | The window's **Delay applied** list starts on **To client**, the documented default |
+| `delay_direction_is_applied` | With **To target**, the request reaches the target late and the reply is not held again. With **Both ways**, both are held and a round trip takes twice the latency. Each also checks the status block names the direction |
 | `large_delayed_download_is_whole` | 8 MB through the delayed direction arrives whole, past the 1 MB queue cap, forcing back pressure repeatedly |
 | `large_undelayed_upload_is_whole` | 8 MB through the undelayed direction arrives whole |
 | `half_close_lets_the_reply_through` | A client that finishes sending still receives the full response. A relay treating that as a full shutdown truncates the reply |
@@ -209,13 +213,21 @@ of zero is accepted (it turns SnailNet into a plain relay).
 
 | Test | What it proves |
 |---|---|
-| `help_prints_usage_and_exits_clean` | `--help` opens with the version from `Version.h`, documents every flag, and starts nothing |
+| `help_prints_usage_and_exits_clean` | `--help` opens with the version from `Version.h`, documents every flag in both its long and short forms, and starts nothing |
 | `help_aliases_match_long_form` | `-h` and `-?` behave the same as `--help` |
 | `bad_argument_is_rejected` | An unknown flag, a missing value, an out of range or non-numeric port, bad latency, and an address over 63 characters are all reported on stderr with a non-zero exit, never a half start |
+| `short_flag_matches_long_form` | Each of `-la`, `-lp`, `-ta`, `-tp`, `-d` and `-dd` reaches the same option as its long form, shown by a bad value producing that option's own error, naming the long flag |
+| `short_flag_missing_value_is_rejected` | Each short flag given with no value is refused, and the message echoes the short flag as typed |
+| `short_flag_blank_address_is_rejected` | A blank address through `-la` or `-ta` is refused, the same as through the long form |
+| `short_flag_ignores_case` | Short flags match regardless of case (`-LP`, `-Tp`, `-D`), like the long ones |
 | `blank_address_is_rejected` | An address that is explicitly empty is refused, not quietly treated as a default |
 | `longest_address_is_not_rejected_for_length` | A 63 character address gets past the length check and fails only at resolution, so the limit sits at exactly 63 and nothing is cut short |
 | `relay_works_and_reports_sessions` | A real session through the CLI is byte exact, delayed one way, and the session start/end is printed with live counts |
 | `omitted_flags_use_the_gui_defaults` | Leaving a flag out falls back to the same default the GUI pre-fills, confirmed by timing, not just by reading the help text |
+| `bad_delay_dir_is_rejected` | Any `--delay-dir` value but `client`, `target` or `both` (including blank) is refused before anything starts |
+| `delay_dir_holds_the_chosen_direction` | `--delay-dir client`, `target` and `both` each hold the right direction, measured at the target as well as at the client, and stdout names the direction. Values ignore case |
+| `short_delay_dir_flag_works` | `-dd` reaches the same option as `--delay-dir` |
+| `relay_runs_with_short_flags_only` | A relay configured entirely through short flags binds, forwards, and applies the latency it was given |
 | `target_hostname_falls_back_to_next_address` | A target of `localhost` reaches a server listening only on `127.0.0.1`: the refused `::1` address is skipped, not fatal. Takes about two seconds, because Windows is slow to report the refusal. Skips itself where `localhost` does not resolve to IPv6 first |
 | `console_signal_stops_cleanly` | A console signal stops the relay the same way the GUI's Stop button does, exits 0, and frees the port |
 

@@ -12,6 +12,7 @@
 #include <StrSafe.h>
 
 #include "Commands.h"
+#include "Help.h"
 #include "Relay.h"
 #include "Snailnet.h"
 
@@ -101,6 +102,7 @@ VOID OnStart(_In_opt_ HWND hWindow)
     UINT          uListenPort                = 0;
     UINT          uTargetPort                = 0;
     UINT          uLatencyMs                 = 0;
+    LRESULT       lSelection                 = CB_ERR;
     BOOL          bValid                     = FALSE;
     BOOL          bRead                      = FALSE;
 
@@ -151,6 +153,20 @@ VOID OnStart(_In_opt_ HWND hWindow)
         goto EXIT_ON_START;
     }
 
+    /* Items were added in SNAILNET_DELAY_DIR order, so the index is the
+       direction. Nothing selected falls back to the default rather than
+       refusing to start. */
+    lSelection = SendDlgItemMessageW(hWindow, IDC_DELAY_DIR, CB_GETCURSEL, 0, 0);
+
+    if ((lSelection >= 0) && (lSelection < (LRESULT)DELAY_DIR_COUNT))
+    {
+        Config.DelayDir = (SNAILNET_DELAY_DIR)lSelection;
+    }
+    else
+    {
+        Config.DelayDir = DEFAULT_DELAY_DIR;
+    }
+
     /* The ports go back to text because the resolver takes text. Printing the
        parsed number rather than the raw field also strips whatever spacing
        the user typed. */
@@ -185,7 +201,8 @@ VOID OnStart(_In_opt_ HWND hWindow)
                             uListenPort,
                             szTargetAddr,
                             uTargetPort,
-                            uLatencyMs);
+                            uLatencyMs,
+                            DelayDirText(Config.DelayDir));
 
     RefreshStatus(hWindow);
     SetRunning(hWindow, TRUE);

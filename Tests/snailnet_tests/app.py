@@ -57,6 +57,11 @@ IDC_STOP = 107
 IDC_STATUS = 108
 IDC_ABOUT_TEXT = 113
 IDC_VERSION = 119
+IDC_DELAY_DIR = 120
+
+#: Index of each choice in the delay list, mirroring SNAILNET_DELAY_DIR,
+#: which is the order Ui.c adds them in.
+DELAY_DIRS = {"client": 0, "target": 1, "both": 2}
 
 WM_NULL = 0x0000
 WM_CLOSE = 0x0010
@@ -64,6 +69,8 @@ WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 WM_COMMAND = 0x0111
+CB_GETCURSEL = 0x0147
+CB_SETCURSEL = 0x014E
 BN_CLICKED = 0
 
 #: Give up rather than wait out a UI thread that is not pumping messages.
@@ -415,6 +422,48 @@ class SnailNet:
         self._write_field(IDC_TARGET_ADDR, str(target_addr))
         self._write_field(IDC_TARGET_PORT, str(target_port))
         self._write_field(IDC_LATENCY, str(latency_ms))
+
+    def set_delay_dir(self, direction: str) -> None:
+        """Picks which way the latency applies, confirming the choice took.
+
+        Sends ``CB_SETCURSEL`` straight to the combo box, for the same
+        cross-process reason the edit fields use ``WM_SETTEXT``. The
+        application reads the selection only when Start is pressed, so no
+        change notification is needed.
+
+        :param direction: ``"client"``, ``"target"`` or ``"both"``.
+        :raises SnailNetError: If the list will not hold the selection.
+        """
+        index = DELAY_DIRS[direction]
+        _log.info("delay direction %s", direction)
+        hctl = self._control(IDC_DELAY_DIR)
+        _user32.SendMessageTimeoutW(
+            hctl, CB_SETCURSEL, index, None, SMTO_ABORTIFHUNG, READ_TIMEOUT_MS, None
+        )
+
+        if self.delay_dir_index() != index:
+            raise SnailNetError(f"delay list would not select {direction!r}")
+
+    def delay_dir_index(self) -> Optional[int]:
+        """Returns the delay list's selected index, or None if unreadable.
+
+        :return: The index, -1 when nothing is selected, or None if
+            the message timed out.
+        """
+        result = ctypes.c_ulonglong(0)
+
+        if not _user32.SendMessageTimeoutW(
+            self._control(IDC_DELAY_DIR),
+            CB_GETCURSEL,
+            0,
+            None,
+            SMTO_ABORTIFHUNG,
+            READ_TIMEOUT_MS,
+            ctypes.byref(result),
+        ):
+            return None
+
+        return ctypes.c_longlong(result.value).value
 
     def _click(self, ctl_id: int) -> None:
         """Posts the ``WM_COMMAND`` a real button click would send.

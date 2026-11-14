@@ -54,7 +54,8 @@ INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
             MessageBoxW(NULL, MSG_FAIL_WINSOCK, PROJ_NAME, MB_ICONERROR);
         }
 
-        return SNAILNET_FAIL_WINSOCK;
+        iStatus = SNAILNET_FAIL_WINSOCK;
+        goto EXIT_WMAIN;
     }
 
     if (bCliMode)
@@ -67,6 +68,8 @@ INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
     }
 
     SocketLibCleanup();
+
+EXIT_WMAIN:
 
     return iStatus;
 
@@ -94,7 +97,7 @@ static INT RunGui(VOID)
 
     if (NULL == hWindow)
     {
-        return iStatus;
+        goto EXIT_RUN_GUI;
     }
 
     for (;;)
@@ -120,8 +123,11 @@ static INT RunGui(VOID)
     /* WM_DESTROY already did this. Repeating it costs nothing and covers the
        paths that leave the loop without going through the window procedure. */
     RelayStop();
+    iStatus = (INT)Message.wParam;
 
-    return (INT)Message.wParam;
+EXIT_RUN_GUI:
+
+    return iStatus;
 
 } /* RunGui */
 

@@ -53,6 +53,14 @@ static CONST FIELD_DEF g_aFields[] = {
     {LABEL_TARGET_PORT, IDC_LABEL_TARGET_PORT, IDC_TARGET_PORT, DEFAULT_TARGET_PORT},
     {LABEL_LATENCY, IDC_LABEL_LATENCY, IDC_LATENCY, DEFAULT_LATENCY}};
 
+/** The delay list's entries, indexed by SNAILNET_DELAY_DIR. Added in this
+    order, so an item's index is its direction. */
+static CONST PCWSTR g_apszDelayDirs[] = {
+    ITEM_DELAY_TO_CLIENT, ITEM_DELAY_TO_TARGET, ITEM_DELAY_BOTH};
+
+_Static_assert(COUNT_OF(g_apszDelayDirs) == DELAY_DIR_COUNT,
+               "g_apszDelayDirs needs one label per SNAILNET_DELAY_DIR");
+
 /** Controls belonging to each tab, shown and hidden as a group. */
 static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
                                     IDC_TITLE,
@@ -67,6 +75,8 @@ static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
                                     IDC_TARGET_PORT,
                                     IDC_LABEL_LATENCY,
                                     IDC_LATENCY,
+                                    IDC_LABEL_DELAY_DIR,
+                                    IDC_DELAY_DIR,
                                     IDC_START,
                                     IDC_STOP};
 
@@ -167,6 +177,20 @@ static VOID PlaceCtl(_In_opt_ HWND hWindow,
  * @param hWindow Main window. May be NULL.
  */
 static VOID LayoutControls(_In_opt_ HWND hWindow);
+
+/**
+ * @brief Makes a drop down list's closed field a given height.
+ *
+ * @details The field's height is its item height plus a frame whose
+ * thickness depends on the theme and DPI, so it is measured rather than
+ * assumed: set the item height, see how tall the field came out, and
+ * correct by the difference.
+ *
+ * @param hWindow Main window. May be NULL.
+ * @param iCtlId  Combo box identifier.
+ * @param iHeight Height wanted for the closed field.
+ */
+static VOID SizeComboField(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT iHeight);
 
 /**
  * @brief EnumChildWindows callback that applies one font.
@@ -773,6 +797,19 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
         iPosY += iRowH + Scale(ROW_GAP, uDpi);
     }
 
+    /* A drop down list's height includes the list it opens, so the field
+       itself is sized through its item height instead. Done on every layout
+       because WM_SETFONT, sent on each DPI change, resets it. */
+    PlaceCtl(hWindow, IDC_LABEL_DELAY_DIR, iPosX, iPosY, iLabelW, iRowH);
+    PlaceCtl(hWindow,
+             IDC_DELAY_DIR,
+             iPosX + iLabelW,
+             iPosY,
+             iWidth - iLabelW,
+             iRowH * (1 + COMBO_DROP));
+    SizeComboField(hWindow, IDC_DELAY_DIR, iRowH);
+    iPosY += iRowH + Scale(ROW_GAP, uDpi);
+
     PlaceCtl(hWindow, IDC_START, iPosX + iLabelW, iPosY, iButtonW, Scale(BUTTON_H, uDpi));
     PlaceCtl(hWindow,
              IDC_STOP,
@@ -790,6 +827,55 @@ EXIT_LAYOUT:
     return;
 
 } /* LayoutControls */
+
+static VOID SizeComboField(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT iHeight)
+{
+    RECT    Bounds   = {0};
+    HWND    hCombo   = NULL;
+    LRESULT lItemH   = 0;
+    INT     iFieldH  = 0;
+    BOOL    bGotRect = FALSE;
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    hCombo = GetDlgItem(hWindow, iCtlId);
+
+    if (NULL == hCombo)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    lItemH = SendMessageW(hCombo, CB_GETITEMHEIGHT, (WPARAM)-1, 0);
+
+    if (CB_ERR == lItemH)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    bGotRect = GetWindowRect(hCombo, &Bounds);
+
+    if (!bGotRect)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    /* A closed drop down list reports only its field here, not the list. */
+    iFieldH = Bounds.bottom - Bounds.top;
+    lItemH += (LRESULT)(iHeight - iFieldH);
+
+    if (0 < lItemH)
+    {
+        (VOID) SendMessageW(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)lItemH);
+    }
+
+EXIT_SIZE_COMBO:
+
+    return;
+
+} /* SizeComboField */
 
 static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 {
@@ -969,6 +1055,32 @@ static VOID BuildControls(_In_opt_ HWND hWindow)
                WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
                g_aFields[iIndex].iCtlId);
     }
+
+    /* After the edit boxes and before the buttons, so tab order follows the
+       form top to bottom. */
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_STATIC,
+           LABEL_DELAY_DIR,
+           WS_CHILD | SS_CENTERIMAGE,
+           IDC_LABEL_DELAY_DIR);
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_COMBOBOX,
+           NULL,
+           WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+           IDC_DELAY_DIR);
+
+    for (iIndex = 0; iIndex < COUNT_OF(g_apszDelayDirs); iIndex++)
+    {
+        (VOID) SendDlgItemMessageW(hWindow,
+                                   IDC_DELAY_DIR,
+                                   CB_ADDSTRING,
+                                   0,
+                                   (LPARAM)g_apszDelayDirs[iIndex]);
+    }
+
+    (VOID) SendDlgItemMessageW(hWindow, IDC_DELAY_DIR, CB_SETCURSEL, (WPARAM)DEFAULT_DELAY_DIR, 0);
 
     AddCtl(hWindow,
            0,

@@ -537,6 +537,8 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
     DWORD     dwOtherMs               = 0;
     DWORD     dwWait                  = 0;
     DWORD     dwAbort                 = 0;
+    DWORD     dwToTargetMs            = RELAY_NO_DELAY;
+    DWORD     dwToClientMs            = RELAY_NO_DELAY;
     BOOL      bToTargetDone           = FALSE;
     BOOL      bToClientDone           = FALSE;
 
@@ -553,11 +555,31 @@ static VOID SessionPump(_In_ PRELAY_SESSION pSession)
         goto EXIT_PUMP;
     }
 
-    /* One way. Only the direction that ends at the client is delayed, so a
-       request/response exchange pays the latency once rather than twice.
-       These two lines are the whole knob if that ever needs to change. */
-    DirectionInit(&ToTarget, &pSession->Client, &pSession->Target, RELAY_NO_DELAY);
-    DirectionInit(&ToClient, &pSession->Target, &pSession->Client, pSession->Config.dwLatencyMs);
+    /* One way by default. Only the direction that ends at the client is
+       delayed, so a request/response exchange pays the latency once rather
+       than twice. DelayDir can hold the other direction instead, or both, in
+       which case each gets the full latency and a round trip pays it twice. */
+    switch (pSession->Config.DelayDir)
+    {
+    case DELAY_DIR_TO_TARGET:
+        dwToTargetMs = pSession->Config.dwLatencyMs;
+        dwToClientMs = RELAY_NO_DELAY;
+        break;
+
+    case DELAY_DIR_BOTH:
+        dwToTargetMs = pSession->Config.dwLatencyMs;
+        dwToClientMs = pSession->Config.dwLatencyMs;
+        break;
+
+    case DELAY_DIR_TO_CLIENT:
+    default:
+        dwToTargetMs = RELAY_NO_DELAY;
+        dwToClientMs = pSession->Config.dwLatencyMs;
+        break;
+    }
+
+    DirectionInit(&ToTarget, &pSession->Client, &pSession->Target, dwToTargetMs);
+    DirectionInit(&ToClient, &pSession->Target, &pSession->Client, dwToClientMs);
 
     ahEvents[WAIT_SLOT_ABORT]  = g_hAbort;
     ahEvents[WAIT_SLOT_CLIENT] = pSession->Client.hEvent;

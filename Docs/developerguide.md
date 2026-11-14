@@ -37,9 +37,8 @@ msbuild SnailNet.slnx /p:Configuration=Release /p:Platform=x86
 ```
 
 `/p:Platform=Win32` fails with `MSB4126: The specified solution
-configuration "Release|Win32" is invalid`. This asymmetry comes from the
-`.slnx`, not from anything you can fix in a project file, so it is worth
-knowing rather than working around.
+configuration "Release|Win32" is invalid`. The mismatch comes from the
+`.slnx`, not from anything a project file can fix.
 
 ## Project settings that matter
 
@@ -58,12 +57,6 @@ setting.** Mixing `/MT` and `/MD` produces `LNK2038`, or worse, a build that
 links and then corrupts the heap because two CRT copies each think they own
 the allocator.
 
-Function signatures throughout the codebase carry SAL annotations
-(`_In_`, `_Out_opt_`, `_Inout_`, and so on). They do not currently gate the
-build; `/analyze` is not wired into either `.vcxproj`. They still document
-ownership and nullability at every call site, which is why they are kept up
-to date even without a checker enforcing them.
-
 ## Project layout
 
 Two projects. `Sockets` is a small, reusable Winsock wrapper with no
@@ -78,7 +71,7 @@ dependency on the GUI; `SnailNet` is the application built on top of it.
 | `SnailNet/Ui.c`, `.h` | Window class registration, control layout, fonts, the window procedure |
 | `SnailNet/Commands.c`, `.h` | Start/Stop handlers: validates the form, drives the relay, updates the status line |
 | `SnailNet/Relay.c`, `.h` | The relay itself: one accept thread, one session thread per client, the delay queue. Knows nothing about windows or consoles; see [Command line mode](#command-line-mode) |
-| `SnailNet/Help.c`, `.h` | Static text for the Help and About tabs |
+| `SnailNet/Help.c`, `.h` | Static text: the Help and About tabs, and how each delay direction is described |
 | `SnailNet/Snailnet.h` | Shared constants: labels, defaults, layout, limits, exit codes |
 | `SnailNet/Resource.h`, `.rc` | The window icon resource |
 
@@ -87,14 +80,22 @@ dependency on the GUI; `SnailNet` is the application built on top of it.
 
 ## How the relay delays traffic
 
-The user-visible behavior (one-way delay, one session per client) is
-described in [userguide.md](userguide.md#how-it-works). The part that only
-matters inside `Relay.c`: delayed bytes are not produced by sleeping on the
-socket. Each chunk read from the target is stamped with the moment it
-becomes due (arrival time plus the configured latency) and queued, and a
-background pass releases it once that time passes. Sleeping on the read
-would add the same delay but also cap throughput at one buffer per
-interval; stamping and queuing does not.
+The user-visible behavior (a one-way delay by default, one session per
+client) is described in [userguide.md](userguide.md#how-it-works).
+
+Each session has two directions, `ToTarget` and `ToClient`, and each gets
+its own latency when the session starts. `RELAY_CONFIG.DelayDir` (a
+`SNAILNET_DELAY_DIR` from `Snailnet.h`) decides which: the full latency on
+the held direction, `RELAY_NO_DELAY` on the other, or the full latency on
+both. Nothing else in the pump knows or cares which way is held. The GUI's
+**Delay applied** list is filled in `SNAILNET_DELAY_DIR` order, so its
+selected index is the value; keep the two in step.
+
+Delayed bytes are not produced by sleeping on the socket. Each chunk read
+is stamped with the moment it becomes due (arrival time plus that
+direction's latency) and queued, and the pump releases it once that time
+passes. Sleeping on the read would add the same delay but also cap
+throughput at one buffer per interval; stamping and queuing does not.
 
 The queue is capped at `RELAY_QUEUE_MAX_CB` (1 MB) per direction, after
 which the relay stops reading from that side until the queue drains. That
@@ -105,7 +106,7 @@ the User Guide documents as a limit.
 
 With any argument at all, `wmain` dispatches to `CliRun` instead of the
 GUI; see [userguide.md](userguide.md#command-line-mode) for the flags
-themselves. Two decisions worth knowing if you touch this:
+themselves. Three things worth knowing if you touch this:
 
 **The project builds as `Console`, not `Windows`.** A Win32 executable's
 subsystem is fixed at link time, so a single binary that is sometimes a
@@ -155,8 +156,8 @@ enforce, already in use throughout the C sources:
   early return, rather than returning from the middle. Look at any function
   in `Relay.c` or `Sockets.c` for the pattern.
 - **No function calls inside a condition.** Store the return value on its
-  own line, then test the variable: `hr = StringCchCopyW(...);` followed by
-  `if (FAILED(hr))`, never `if (FAILED(StringCchCopyW(...)))`. The same goes
+  own line, then test the variable: `hResult = StringCchCopyW(...);` followed
+  by `if (FAILED(hResult))`, never `if (FAILED(StringCchCopyW(...)))`. The same goes
   for `while` and `switch`. Every result can then be read in a debugger, and
   each line does one thing. Macros that only test a value, such as
   `SOCKET_IS_ERROR(SockStatus)`, are fine.
@@ -173,13 +174,13 @@ enforce, already in use throughout the C sources:
   `SocketStatusText` is a good example: sixteen fixed strings, all defined
   together above the function that returns them.
 - **SAL annotations on every parameter** (`_In_`, `_Out_opt_`, `_Inout_`,
-  and so on), even though `/analyze` is not currently run; see
-  [above](#project-settings-that-matter).
+  and so on). `/analyze` is not run, so nothing enforces them; they are
+  kept current because they document ownership and nullability.
 
 ## Testing
 
-An automated suite drives the built executable through its window, moving
-real TCP traffic through the relay and checking what arrives. See
+An automated suite drives the built executable through its window and its
+command line, moving real TCP traffic through the relay and checking what arrives. See
 [testguide.md](testguide.md) for how to run it, what it covers, and how to
 read a failure.
 

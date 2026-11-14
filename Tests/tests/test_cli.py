@@ -70,6 +70,11 @@ def test_help_prints_usage_and_exits_clean(exe_path, expected_version):
     assert "--latency" in stdout
     assert "Ctrl+C" in stdout
 
+    assert "--delay-dir" in stdout
+
+    for short in ("-la,", "-lp,", "-ta,", "-tp,", "-d,", "-dd,"):
+        assert short in stdout, f"usage does not list {short!r}"
+
 
 @pytest.mark.parametrize("flag", ["-h", "-?"])
 def test_help_aliases_match_long_form(exe_path, flag):
@@ -116,6 +121,77 @@ def test_bad_argument_is_rejected(exe_path, label, argv, expected_text):
 
     assert code != 0, f"{label}: exited 0 on bad input; stderr was {stderr!r}"
     assert expected_text in stderr.lower(), f"{label}: stderr was {stderr!r}"
+
+
+#: (short flag, value, text expected in stderr naming the long form)
+SHORT_FLAG_REJECTIONS = [
+    ("-la", "a" * 64, "--listen-addr must be at most 63"),
+    ("-lp", "99999", "--listen-port must be a whole number"),
+    ("-ta", "a" * 64, "--target-addr must be at most 63"),
+    ("-tp", "0", "--target-port must be a whole number"),
+    ("-d", "soon", "latency must be"),
+    ("-dd", "sideways", "--delay-dir must be client, target or both"),
+]
+
+
+@pytest.mark.parametrize(
+    "flag,value,expected_text",
+    SHORT_FLAG_REJECTIONS,
+    ids=[case[0] for case in SHORT_FLAG_REJECTIONS],
+)
+def test_short_flag_matches_long_form(exe_path, flag, value, expected_text):
+    """Each short flag selects the same option as its long form.
+
+    A bad value is the cheapest way to tell which option a flag reached:
+    every option reports its own error, naming the long form, without
+    starting the relay.
+    """
+    with CliProcess(exe_path, [flag, value]) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0, f"{flag}: exited 0 on bad input; stderr was {stderr!r}"
+    assert expected_text in stderr, f"{flag}: stderr was {stderr!r}"
+
+
+@pytest.mark.parametrize("flag", ["-la", "-lp", "-ta", "-tp", "-d", "-dd"])
+def test_short_flag_missing_value_is_rejected(exe_path, flag):
+    """A short flag given as the last argument, with no value, is refused.
+
+    The message echoes the flag as typed, so the short form appears in it.
+    """
+    with CliProcess(exe_path, [flag]) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0, f"{flag}: exited 0 with no value; stderr was {stderr!r}"
+    assert f"{flag} needs a value" in stderr, f"{flag}: stderr was {stderr!r}"
+
+
+@pytest.mark.parametrize("flag", ["-la", "-ta"])
+def test_short_flag_blank_address_is_rejected(exe_path, flag):
+    """An explicitly blank address through a short flag is refused too."""
+    with CliProcess(exe_path, [flag, ""]) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0
+    assert "blank" in stderr.lower(), f"{flag}: stderr was {stderr!r}"
+
+
+@pytest.mark.parametrize(
+    "flag,expected_text",
+    [
+        ("-LP", "--listen-port must be a whole number"),
+        ("-Tp", "--target-port must be a whole number"),
+        ("-D", "latency must be"),
+    ],
+)
+def test_short_flag_ignores_case(exe_path, flag, expected_text):
+    """Short flags match regardless of case, like the long ones."""
+    with CliProcess(exe_path, [flag, "abc"]) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0
+    assert "unrecognised" not in stderr, f"{flag} was not recognised: {stderr!r}"
+    assert expected_text in stderr, f"{flag}: stderr was {stderr!r}"
 
 
 def test_blank_address_is_rejected(exe_path):
@@ -226,6 +302,145 @@ def test_omitted_flags_use_the_gui_defaults(exe_path, ports):
     assert (
         elapsed_ms >= 200
     ), f"round trip was {elapsed_ms:.0f} ms; default latency may be unused"
+
+
+def test_relay_runs_with_short_flags_only(exe_path, ports):
+    """A relay configured entirely through short flags runs as configured."""
+    with (
+        EchoServer(ports.target),
+        CliProcess(
+            exe_path,
+            [
+                "-la",
+                "127.0.0.1",
+                "-lp",
+                str(ports.listen),
+                "-ta",
+                "127.0.0.1",
+                "-tp",
+                str(ports.target),
+                "-d",
+                "100",
+            ],
+        ) as cli,
+    ):
+        with _connect_when_ready(cli, ports.listen) as client:
+            client.sendall(b"ping")
+            assert client.recv(4) == b"ping"
+
+        _stop(cli)
+        _code, stdout, _stderr = cli.wait(timeout=20)
+
+    assert (
+        f"Listening on 127.0.0.1:{ports.listen}, forwarding to "
+        f"127.0.0.1:{ports.target}, latency 100 ms" in stdout
+    ), f"stdout: {stdout!r}"
+    assert "Session started (1 active, 1 total)" in stdout
+
+
+@pytest.mark.parametrize("value", ["sideways", "", "server", "client,target"])
+def test_bad_delay_dir_is_rejected(exe_path, value):
+    """Anything but client, target or both is refused before starting."""
+    with CliProcess(exe_path, ["--delay-dir", value]) as cli:
+        code, _stdout, stderr = cli.wait()
+
+    assert code != 0, f"{value!r}: exited 0; stderr was {stderr!r}"
+    assert "--delay-dir must be client, target or both" in stderr, stderr
+
+
+#: (value as typed, inbound held, round trip in multiples of the latency,
+#:  how stdout describes it)
+CLI_DIRECTION_CASES = [
+    ("client", False, 1, "latency 600 ms to client"),
+    ("TARGET", True, 1, "latency 600 ms to target"),
+    ("both", True, 2, "latency 600 ms each way"),
+]
+
+
+@pytest.mark.parametrize(
+    "value,inbound_held,trips,described",
+    CLI_DIRECTION_CASES,
+    ids=[case[0] for case in CLI_DIRECTION_CASES],
+)
+def test_delay_dir_holds_the_chosen_direction(
+    exe_path, ports, value, inbound_held, trips, described
+):
+    """--delay-dir picks which direction is held, matched without case.
+
+    The target stamps when the request arrived, which separates a delay on
+    the way in from one on the way back.
+    """
+    delay_ms = 600
+
+    with (
+        EchoServer(ports.target) as server,
+        CliProcess(
+            exe_path,
+            [
+                "--listen-port",
+                str(ports.listen),
+                "--target-port",
+                str(ports.target),
+                "--latency",
+                str(delay_ms),
+                "--delay-dir",
+                value,
+            ],
+        ) as cli,
+    ):
+        with _connect_when_ready(cli, ports.listen) as client:
+            sent_at = time.monotonic()
+            client.sendall(b"ping")
+            assert client.recv(4) == b"ping"
+            returned_at = time.monotonic()
+
+        assert server.first_byte_at, "the target never saw the request"
+        inbound_ms = (server.first_byte_at[0] - sent_at) * 1000.0
+        roundtrip_ms = (returned_at - sent_at) * 1000.0
+
+        _stop(cli)
+        _code, stdout, _stderr = cli.wait(timeout=20)
+
+    assert described in stdout, f"stdout: {stdout!r}"
+
+    if inbound_held:
+        assert inbound_ms >= delay_ms * 0.9, f"inbound took {inbound_ms:.0f} ms"
+    else:
+        assert inbound_ms < 300, f"inbound took {inbound_ms:.0f} ms"
+
+    expected_ms = delay_ms * trips
+    assert roundtrip_ms >= expected_ms * 0.9, f"round trip {roundtrip_ms:.0f} ms"
+    assert (
+        roundtrip_ms < expected_ms + delay_ms * 0.6 + 400
+    ), f"round trip {roundtrip_ms:.0f} ms against {expected_ms} ms expected"
+
+
+def test_short_delay_dir_flag_works(exe_path, ports):
+    """-dd reaches the same option as --delay-dir."""
+    with (
+        EchoServer(ports.target),
+        CliProcess(
+            exe_path,
+            [
+                "-lp",
+                str(ports.listen),
+                "-tp",
+                str(ports.target),
+                "-d",
+                "50",
+                "-dd",
+                "both",
+            ],
+        ) as cli,
+    ):
+        with _connect_when_ready(cli, ports.listen) as client:
+            client.sendall(b"ping")
+            assert client.recv(4) == b"ping"
+
+        _stop(cli)
+        _code, stdout, _stderr = cli.wait(timeout=20)
+
+    assert "latency 50 ms each way" in stdout, f"stdout: {stdout!r}"
 
 
 def _localhost_resolves_ipv6_first(port: int) -> bool:

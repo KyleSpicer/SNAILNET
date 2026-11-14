@@ -16,6 +16,7 @@
 #include <wctype.h>
 
 #include "Cli.h"
+#include "Help.h"
 #include "Relay.h"
 #include "Snailnet.h"
 #include "Sockets.h"
@@ -31,19 +32,32 @@
 #define CLI_FLAG_TARGET_ADDR L"--target-addr"
 #define CLI_FLAG_TARGET_PORT L"--target-port"
 #define CLI_FLAG_LATENCY L"--latency"
+#define CLI_FLAG_DELAY_DIR L"--delay-dir"
+#define CLI_FLAG_LISTEN_ADDR_SHORT L"-la"
+#define CLI_FLAG_LISTEN_PORT_SHORT L"-lp"
+#define CLI_FLAG_TARGET_ADDR_SHORT L"-ta"
+#define CLI_FLAG_TARGET_PORT_SHORT L"-tp"
+#define CLI_FLAG_LATENCY_SHORT L"-d"
+#define CLI_FLAG_DELAY_DIR_SHORT L"-dd"
 #define CLI_FLAG_HELP_LONG L"--help"
 #define CLI_FLAG_HELP_SHORT L"-h"
 #define CLI_FLAG_HELP_QMARK L"-?"
+
+/* Values --delay-dir accepts, matched without regard to case. */
+#define CLI_DELAY_CLIENT L"client"
+#define CLI_DELAY_TARGET L"target"
+#define CLI_DELAY_BOTH L"both"
 
 #define FMT_CLI_TIMESTAMPED L"[%02u:%02u:%02u] %s\n"
 #define FMT_CLI_SESSION_STARTED L"Session started (%u active, %u total)"
 #define FMT_CLI_SESSION_CLOSED L"Session closed (%u active, %u total)"
 #define FMT_CLI_ERROR L"Error: %s"
-#define FMT_CLI_RUNNING L"Listening on %s:%u, forwarding to %s:%u, latency %u ms\n"
+#define FMT_CLI_RUNNING L"Listening on %s:%u, forwarding to %s:%u, latency %u ms %s\n"
 #define FMT_CLI_START_FAILED L"SnailNet: could not start: %s\n"
 #define FMT_CLI_BAD_PORT L"SnailNet: %s must be a whole number between %u and %u\n"
 #define FMT_CLI_BAD_LATENCY                                                                        \
     L"SnailNet: latency must be a whole, non-negative number of milliseconds\n"
+#define FMT_CLI_BAD_DELAY_DIR L"SnailNet: %s must be client, target or both\n"
 #define FMT_CLI_MISSING_VALUE L"SnailNet: %s needs a value\n"
 #define FMT_CLI_UNKNOWN_ARG L"SnailNet: unrecognised argument '%s'\n"
 #define FMT_CLI_ADDR_TOO_LONG L"SnailNet: %s must be at most %u characters\n"
@@ -71,19 +85,26 @@ static CONST WCHAR g_szUsage[] =
     L"SnailNet launches its GUI instead.\n"
     L"\n"
     L"Options:\n"
-    L"  --listen-addr <address>  Local address to bind. Default: 127.0.0.1\n"
-    L"  --listen-port <port>     Local port to bind. Default: 8080\n"
-    L"  --target-addr <address>  Address to forward to. Default: 127.0.0.1\n"
-    L"  --target-port <port>     Port to forward to. Default: 80\n"
-    L"  --latency <ms>           Delay applied to traffic on its way back\n"
-    L"                           to the client. Default: 250\n"
-    L"  --help, -h, -?           Show this text and exit\n"
+    L"  -la, --listen-addr <address>  Local address to bind. Default: 127.0.0.1\n"
+    L"  -lp, --listen-port <port>     Local port to bind. Default: 8080\n"
+    L"  -ta, --target-addr <address>  Address to forward to. Default: 127.0.0.1\n"
+    L"  -tp, --target-port <port>     Port to forward to. Default: 80\n"
+    L"  -d,  --latency <ms>           Delay in milliseconds. Default: 250\n"
+    L"  -dd, --delay-dir <direction>  Which traffic the delay holds: client\n"
+    L"                                (replies on their way back to the\n"
+    L"                                client), target (requests on their way\n"
+    L"                                out to the target), or both, which holds\n"
+    L"                                each way for the full delay. Default:\n"
+    L"                                client\n"
+    L"  -h, -?, --help                Show this text and exit\n"
     L"\n"
     L"Once running, press Ctrl+C to stop.\n"
     L"\n"
-    L"Example:\n"
+    L"Examples:\n"
     L"  SnailNet --listen-port 8080 --target-addr 127.0.0.1 --target-port 9000 "
-    L"--latency 250\n";
+    L"--latency 250\n"
+    L"  SnailNet -lp 8080 -ta 127.0.0.1 -tp 9000 -d 250\n"
+    L"  SnailNet -lp 8080 -tp 9000 -d 250 -dd target\n";
 
 /** What a command line argument turned out to be. */
 typedef enum _CLI_OPTION
@@ -94,7 +115,8 @@ typedef enum _CLI_OPTION
     CLI_OPTION_LISTEN_PORT,
     CLI_OPTION_TARGET_ADDR,
     CLI_OPTION_TARGET_PORT,
-    CLI_OPTION_LATENCY
+    CLI_OPTION_LATENCY,
+    CLI_OPTION_DELAY_DIR
 } CLI_OPTION,
     *PCLI_OPTION;
 
@@ -115,6 +137,27 @@ static CONST CLI_FLAG_ENTRY g_aCliFlags[] = {
     {CLI_FLAG_TARGET_ADDR, CLI_OPTION_TARGET_ADDR},
     {CLI_FLAG_TARGET_PORT, CLI_OPTION_TARGET_PORT},
     {CLI_FLAG_LATENCY, CLI_OPTION_LATENCY},
+    {CLI_FLAG_DELAY_DIR, CLI_OPTION_DELAY_DIR},
+    {CLI_FLAG_LISTEN_ADDR_SHORT, CLI_OPTION_LISTEN_ADDR},
+    {CLI_FLAG_LISTEN_PORT_SHORT, CLI_OPTION_LISTEN_PORT},
+    {CLI_FLAG_TARGET_ADDR_SHORT, CLI_OPTION_TARGET_ADDR},
+    {CLI_FLAG_TARGET_PORT_SHORT, CLI_OPTION_TARGET_PORT},
+    {CLI_FLAG_LATENCY_SHORT, CLI_OPTION_LATENCY},
+    {CLI_FLAG_DELAY_DIR_SHORT, CLI_OPTION_DELAY_DIR},
+};
+
+/** One recognised --delay-dir value and the direction it selects. */
+typedef struct _CLI_DELAY_ENTRY
+{
+    PCWSTR             pszName;
+    SNAILNET_DELAY_DIR DelayDir;
+} CLI_DELAY_ENTRY, *PCLI_DELAY_ENTRY;
+
+/** Every value --delay-dir accepts. Matched without regard to case. */
+static CONST CLI_DELAY_ENTRY g_aCliDelayDirs[] = {
+    {CLI_DELAY_CLIENT, DELAY_DIR_TO_CLIENT},
+    {CLI_DELAY_TARGET, DELAY_DIR_TO_TARGET},
+    {CLI_DELAY_BOTH, DELAY_DIR_BOTH},
 };
 
 /** Session counters, mirroring Commands.c's g_uActive/g_uTotal for the GUI. */
@@ -160,6 +203,16 @@ static BOOL ParseUInt(_In_z_ PCWSTR pszText, _In_ UINT uMin, _In_ UINT uMax, _Ou
 static CLI_OPTION CliLookupFlag(_In_z_ PCWSTR pszArg);
 
 /**
+ * @brief Looks a --delay-dir value up in g_aCliDelayDirs.
+ *
+ * @param pszText   Value as typed.
+ * @param pDelayDir Receives the direction. Unchanged on failure.
+ *
+ * @return TRUE if pszText named a direction.
+ */
+static BOOL CliParseDelayDir(_In_z_ PCWSTR pszText, _Out_ PSNAILNET_DELAY_DIR pDelayDir);
+
+/**
  * @brief Relay notify callback for command line mode.
  *
  * @details Prints every event to stdout as it arrives, except
@@ -186,21 +239,22 @@ static BOOL WINAPI CliCtrlHandler(_In_ DWORD dwCtrlType);
 
 INT CliRun(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
 {
-    RELAY_CONFIG  Config        = {0};
-    SOCKET_STATUS SockStatus    = SOCKET_STATUS_ERROR;
-    PCWSTR        pszListenAddr = DEFAULT_LISTEN_ADDR;
-    PCWSTR        pszTargetAddr = DEFAULT_TARGET_ADDR;
-    CLI_OPTION    Option        = CLI_OPTION_UNKNOWN;
-    HRESULT       hResult       = S_OK;
-    UINT          uListenPort   = 0;
-    UINT          uTargetPort   = 0;
-    UINT          uLatencyMs    = 0;
-    BOOL          bListenOk     = FALSE;
-    BOOL          bTargetOk     = FALSE;
-    BOOL          bLatencyOk    = FALSE;
-    BOOL          bParsed       = FALSE;
-    INT           iArg          = 0;
-    INT           iResult       = SNAILNET_SUCCESS;
+    RELAY_CONFIG       Config        = {0};
+    SOCKET_STATUS      SockStatus    = SOCKET_STATUS_ERROR;
+    PCWSTR             pszListenAddr = DEFAULT_LISTEN_ADDR;
+    PCWSTR             pszTargetAddr = DEFAULT_TARGET_ADDR;
+    CLI_OPTION         Option        = CLI_OPTION_UNKNOWN;
+    SNAILNET_DELAY_DIR DelayDir      = DEFAULT_DELAY_DIR;
+    HRESULT            hResult       = S_OK;
+    UINT               uListenPort   = 0;
+    UINT               uTargetPort   = 0;
+    UINT               uLatencyMs    = 0;
+    BOOL               bListenOk     = FALSE;
+    BOOL               bTargetOk     = FALSE;
+    BOOL               bLatencyOk    = FALSE;
+    BOOL               bParsed       = FALSE;
+    INT                iArg          = 0;
+    INT                iResult       = SNAILNET_SUCCESS;
 
     /* The CRT line buffers stdout against a real console but fully
        buffers it against a redirected file or pipe, which would otherwise
@@ -295,6 +349,18 @@ INT CliRun(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
 
             break;
 
+        case CLI_OPTION_DELAY_DIR:
+            bParsed = CliParseDelayDir(argv[iArg], &DelayDir);
+
+            if (!bParsed)
+            {
+                fwprintf(stderr, FMT_CLI_BAD_DELAY_DIR, CLI_FLAG_DELAY_DIR);
+                iResult = SNAILNET_ERROR;
+                goto EXIT_CLI_RUN;
+            }
+
+            break;
+
         default:
             break;
         }
@@ -331,6 +397,7 @@ INT CliRun(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
     (VOID) StringCchPrintfW(Config.wszListenPort, RELAY_PORT_CCH, FMT_PORT_TEXT, uListenPort);
     (VOID) StringCchPrintfW(Config.wszTargetPort, RELAY_PORT_CCH, FMT_PORT_TEXT, uTargetPort);
     Config.dwLatencyMs = (DWORD)uLatencyMs;
+    Config.DelayDir    = DelayDir;
 
     /* Manual reset: there is exactly one wait on it, ever, per run. */
     g_hCliStopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -353,7 +420,13 @@ INT CliRun(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
         goto EXIT_CLI_RUN;
     }
 
-    wprintf(FMT_CLI_RUNNING, pszListenAddr, uListenPort, pszTargetAddr, uTargetPort, uLatencyMs);
+    wprintf(FMT_CLI_RUNNING,
+            pszListenAddr,
+            uListenPort,
+            pszTargetAddr,
+            uTargetPort,
+            uLatencyMs,
+            DelayDirText(DelayDir));
     wprintf(L"%s", MSG_CLI_PRESS_CTRL_C);
 
     (VOID) WaitForSingleObject(g_hCliStopEvent, INFINITE);
@@ -478,6 +551,35 @@ EXIT_LOOKUP_FLAG:
     return Option;
 
 } /* CliLookupFlag */
+
+static BOOL CliParseDelayDir(_In_z_ PCWSTR pszText, _Out_ PSNAILNET_DELAY_DIR pDelayDir)
+{
+    SIZE_T iIndex   = 0;
+    INT    iCompare = 0;
+    BOOL   bResult  = FALSE;
+
+    if ((NULL == pszText) || (NULL == pDelayDir))
+    {
+        goto EXIT_PARSE_DELAY_DIR;
+    }
+
+    for (iIndex = 0; iIndex < (sizeof(g_aCliDelayDirs) / sizeof(g_aCliDelayDirs[0])); iIndex++)
+    {
+        iCompare = _wcsicmp(pszText, g_aCliDelayDirs[iIndex].pszName);
+
+        if (0 == iCompare)
+        {
+            *pDelayDir = g_aCliDelayDirs[iIndex].DelayDir;
+            bResult    = TRUE;
+            break;
+        }
+    }
+
+EXIT_PARSE_DELAY_DIR:
+
+    return bResult;
+
+} /* CliParseDelayDir */
 
 static VOID CALLBACK CliNotifyProc(_In_opt_ PVOID    pContext,
                                    _In_ RELAY_NOTIFY Code,

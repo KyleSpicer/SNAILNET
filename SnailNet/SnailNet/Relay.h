@@ -6,9 +6,10 @@
  * accepts gets a session thread that opens its own connection to the target
  * and pumps both directions until either side closes.
  *
- * The delay is one way. Bytes travelling from the target back out to the
- * client are held; bytes on their way in to the target are forwarded as soon
- * as they arrive.
+ * The delay is one way by default. Bytes travelling from the target back out
+ * to the client are held; bytes on their way in to the target are forwarded
+ * as soon as they arrive. RELAY_CONFIG.DelayDir can move the delay to the
+ * other direction instead, or apply it to both.
  *
  * The delay is applied by stamping each chunk with a due time as it arrives
  * and holding it in a queue until that time passes. Sleeping on the read
@@ -105,11 +106,12 @@ typedef VOID(CALLBACK *RELAY_NOTIFY_PROC)(_In_opt_ PVOID    pContext,
  */
 typedef struct _RELAY_CONFIG
 {
-    WCHAR wszListenAddr[RELAY_ADDR_CCH]; /**< Local bind address */
-    WCHAR wszListenPort[RELAY_PORT_CCH]; /**< Local bind port */
-    WCHAR wszTargetAddr[RELAY_ADDR_CCH]; /**< Address to forward to */
-    WCHAR wszTargetPort[RELAY_PORT_CCH]; /**< Port to forward to */
-    DWORD dwLatencyMs;                   /**< Delay added to each direction */
+    WCHAR              wszListenAddr[RELAY_ADDR_CCH]; /**< Local bind address */
+    WCHAR              wszListenPort[RELAY_PORT_CCH]; /**< Local bind port */
+    WCHAR              wszTargetAddr[RELAY_ADDR_CCH]; /**< Address to forward to */
+    WCHAR              wszTargetPort[RELAY_PORT_CCH]; /**< Port to forward to */
+    DWORD              dwLatencyMs;                   /**< Delay added to a held direction */
+    SNAILNET_DELAY_DIR DelayDir;                      /**< Which directions are held */
 
 } RELAY_CONFIG, *PRELAY_CONFIG;
 
