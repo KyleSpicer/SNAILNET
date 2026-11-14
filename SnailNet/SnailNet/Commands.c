@@ -12,8 +12,13 @@
 #include <StrSafe.h>
 
 #include "Commands.h"
+#include "Help.h"
 #include "Relay.h"
 #include "Snailnet.h"
+
+/* OnStart copies each address field into RELAY_CONFIG unchecked, which is
+   safe only while the form's buffer is no larger than the relay's. */
+_Static_assert((INT)ADDR_CCH <= (INT)RELAY_ADDR_CCH, "ADDR_CCH must fit in RELAY_ADDR_CCH");
 
 /** Description of the running relay, rebuilt on every start. */
 static WCHAR g_szRunning[STATUS_CCH] = {0};
@@ -53,12 +58,31 @@ static BOOL
 ReadPort(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_opt_z_ PCWSTR pszName, _Out_opt_ PUINT puPort);
 
 /**
+ * @brief Reads an address field, refusing one too long to hold.
+ *
+ * GetDlgItemTextW quietly truncates to the buffer, and a cut hostname
+ * resolves as a different name, so the length is checked first and an
+ * over-long field is reported on the status line instead.
+ *
+ * @param hWindow Main window.
+ * @param iCtlId  Edit control to read.
+ * @param pszName Field name used in the error text.
+ * @param pszAddr Receives the text. ADDR_CCH characters.
+ *
+ * @return TRUE if the field fit, FALSE if it was reported as too long.
+ */
+static BOOL ReadAddress(_In_ HWND                      hWindow,
+                        _In_ INT                       iCtlId,
+                        _In_z_ PCWSTR                  pszName,
+                        _Out_writes_z_(ADDR_CCH) PWSTR pszAddr);
+
+/**
  * @brief Relay notify callback that forwards to the window as WM_RELAY_NOTIFY.
  *
  * @details The whole of this module's binding to Relay.c's generic
- * RELAY_NOTIFY_PROC: it does nothing but post, so it keeps the same
- * non-blocking guarantee the old direct PostMessageW call had, and the UI
- * thread is still the only thread that ever touches a control.
+ * RELAY_NOTIFY_PROC: it does nothing but post, so it never blocks the
+ * relay worker that calls it, and the UI thread remains the only thread
+ * that touches a control.
  *
  * @param pContext Main window handle, cast back from PVOID.
  * @param Code     What happened.
@@ -78,15 +102,28 @@ VOID OnStart(_In_opt_ HWND hWindow)
     UINT          uListenPort                = 0;
     UINT          uTargetPort                = 0;
     UINT          uLatencyMs                 = 0;
+    LRESULT       lSelection                 = CB_ERR;
     BOOL          bValid                     = FALSE;
+    BOOL          bRead                      = FALSE;
 
     if (NULL == hWindow)
     {
         goto EXIT_ON_START;
     }
 
-    GetDlgItemTextW(hWindow, IDC_LISTEN_ADDR, szListenAddr, ADDR_CCH);
-    GetDlgItemTextW(hWindow, IDC_TARGET_ADDR, szTargetAddr, ADDR_CCH);
+    bRead = ReadAddress(hWindow, IDC_LISTEN_ADDR, LABEL_LISTEN_ADDR, szListenAddr);
+
+    if (!bRead)
+    {
+        goto EXIT_ON_START;
+    }
+
+    bRead = ReadAddress(hWindow, IDC_TARGET_ADDR, LABEL_TARGET_ADDR, szTargetAddr);
+
+    if (!bRead)
+    {
+        goto EXIT_ON_START;
+    }
 
     if (L'\0' == szListenAddr[0] || L'\0' == szTargetAddr[0])
     {
@@ -94,12 +131,16 @@ VOID OnStart(_In_opt_ HWND hWindow)
         goto EXIT_ON_START;
     }
 
-    if (!ReadPort(hWindow, IDC_LISTEN_PORT, LABEL_LISTEN_PORT, &uListenPort))
+    bRead = ReadPort(hWindow, IDC_LISTEN_PORT, LABEL_LISTEN_PORT, &uListenPort);
+
+    if (!bRead)
     {
         goto EXIT_ON_START;
     }
 
-    if (!ReadPort(hWindow, IDC_TARGET_PORT, LABEL_TARGET_PORT, &uTargetPort))
+    bRead = ReadPort(hWindow, IDC_TARGET_PORT, LABEL_TARGET_PORT, &uTargetPort);
+
+    if (!bRead)
     {
         goto EXIT_ON_START;
     }
@@ -110,6 +151,20 @@ VOID OnStart(_In_opt_ HWND hWindow)
     {
         SetStatus(hWindow, MSG_BAD_LATENCY);
         goto EXIT_ON_START;
+    }
+
+    /* Items were added in SNAILNET_DELAY_DIR order, so the index is the
+       direction. Nothing selected falls back to the default rather than
+       refusing to start. */
+    lSelection = SendDlgItemMessageW(hWindow, IDC_DELAY_DIR, CB_GETCURSEL, 0, 0);
+
+    if ((lSelection >= 0) && (lSelection < (LRESULT)DELAY_DIR_COUNT))
+    {
+        Config.DelayDir = (SNAILNET_DELAY_DIR)lSelection;
+    }
+    else
+    {
+        Config.DelayDir = DEFAULT_DELAY_DIR;
     }
 
     /* The ports go back to text because the resolver takes text. Printing the
@@ -146,7 +201,8 @@ VOID OnStart(_In_opt_ HWND hWindow)
                             uListenPort,
                             szTargetAddr,
                             uTargetPort,
-                            uLatencyMs);
+                            uLatencyMs,
+                            DelayDirText(Config.DelayDir));
 
     RefreshStatus(hWindow);
     SetRunning(hWindow, TRUE);
@@ -348,6 +404,52 @@ EXIT_READ_PORT:
     return bResult;
 
 } /* ReadPort */
+
+static BOOL ReadAddress(_In_ HWND                      hWindow,
+                        _In_ INT                       iCtlId,
+                        _In_z_ PCWSTR                  pszName,
+                        _Out_writes_z_(ADDR_CCH) PWSTR pszAddr)
+{
+    BOOL  bResult                   = FALSE;
+    HWND  hControl                  = NULL;
+    INT   cchText                   = 0;
+    WCHAR szMessage[PORT_LABEL_CCH] = {0};
+
+    if ((NULL == hWindow) || (NULL == pszName) || (NULL == pszAddr))
+    {
+        goto EXIT_READ_ADDRESS;
+    }
+
+    pszAddr[0] = L'\0';
+    hControl   = GetDlgItem(hWindow, iCtlId);
+
+    if (NULL != hControl)
+    {
+        cchText = GetWindowTextLengthW(hControl);
+    }
+
+    /* The length excludes the terminator, so ADDR_CCH - 1 is the most that
+       fits. */
+    if (cchText >= ADDR_CCH)
+    {
+        (VOID) StringCchPrintfW(szMessage,
+                                PORT_LABEL_CCH,
+                                FMT_ADDR_TOO_LONG,
+                                pszName,
+                                (UINT)(ADDR_CCH - 1));
+
+        SetStatus(hWindow, szMessage);
+        goto EXIT_READ_ADDRESS;
+    }
+
+    (VOID) GetDlgItemTextW(hWindow, iCtlId, pszAddr, ADDR_CCH);
+    bResult = TRUE;
+
+EXIT_READ_ADDRESS:
+
+    return bResult;
+
+} /* ReadAddress */
 
 static VOID CALLBACK GuiNotifyProc(_In_opt_ PVOID    pContext,
                                    _In_ RELAY_NOTIFY Code,

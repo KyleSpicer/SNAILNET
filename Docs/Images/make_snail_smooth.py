@@ -1,8 +1,8 @@
 """Generate a smooth snail icon for SnailNet.
 
-Drawn at 4x and downsampled with LANCZOS, which anti-aliases the edges. The
-earlier version scaled a 16x16 grid with NEAREST, so every source pixel became
-a visible block at display size.
+Drawn at 4x and downsampled with LANCZOS, which anti-aliases the edges.
+Scaling a small pixel grid with NEAREST instead would turn every source pixel
+into a visible block at display size.
 """
 
 # pylint: disable=import-error

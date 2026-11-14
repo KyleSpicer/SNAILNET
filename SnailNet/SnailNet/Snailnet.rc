@@ -1,3 +1,33 @@
+#include <winver.h>
 #include "Resource.h"
+#include "Version.h"
 
 IDI_SNAIL ICON "../../Docs/Images/snail.ico"
+
+VS_VERSION_INFO VERSIONINFO 
+FILEVERSION SNAILNET_VERSION_MAJOR, SNAILNET_VERSION_MINOR, SNAILNET_VERSION_PATCH, 0 
+PRODUCTVERSION SNAILNET_VERSION_MAJOR, SNAILNET_VERSION_MINOR, SNAILNET_VERSION_PATCH, 0 
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK 
+FILEFLAGS 0 
+FILEOS VOS_NT_WINDOWS32 
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN 
+BEGIN 
+    BLOCK "StringFileInfo" 
+    BEGIN BLOCK "040904B0" 
+        BEGIN 
+            VALUE "CompanyName",        "kspice.dev" 
+            VALUE "FileDescription",    "SnailNet TCP latency relay tool" 
+            VALUE "FileVersion",        SNAILNET_VERSION_STR    
+            VALUE "InternalName",       "SnailNet"    
+            VALUE "LegalCopyright",     "Copyright (c) 2026 kspice.dev" 
+            VALUE "OriginalFilename",   "SnailNet.exe" 
+            VALUE "ProductName",        "SnailNet" 
+            VALUE "ProductVersion",     SNAILNET_VERSION_STR 
+        END 
+    END 
+    BLOCK "VarFileInfo" 
+    BEGIN 
+        VALUE "Translation", 0x409, 1200 
+    END 
+END

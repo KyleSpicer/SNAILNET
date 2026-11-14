@@ -20,10 +20,7 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
-#define SOCKET_IS_ERROR(Status) (SOCKET_STATUS_SUCCESS != (Status))
-
-/** Event mask applied to a connected socket. */
-#define SOCKET_CONN_EVENTS (FD_READ | FD_WRITE | FD_CLOSE)
+#include "SocketsConstants.h"
 
 /** @brief Result of a library operation. */
 typedef enum _SOCKET_STATUS
@@ -205,12 +202,15 @@ SocketConnInit(_Out_ PSOCKET_CONN pConn);
  *
  * @details The connect is issued non-blocking and completed by waiting for
  * FD_CONNECT, so a slow or unreachable target does not pin the calling thread
- * past the timeout or the abort signal.
+ * past the timeout or the abort signal. When the address resolves to several
+ * entries (a hostname such as "localhost" gives ::1 and 127.0.0.1), each is
+ * tried in resolver order until one connects.
  *
  * @param pConn       Connection to fill in. Initialised on entry.
  * @param pwszAddress Target address.
  * @param pwszPort    Target port as text.
- * @param dwTimeoutMs Wait limit, or INFINITE.
+ * @param dwTimeoutMs Wait limit for the whole call, across every address
+ *                    tried, or INFINITE.
  * @param hAbort      Optional event that cancels the wait.
  *
  * @return SOCKET_STATUS_SUCCESS, SOCKET_STATUS_TIMEOUT,

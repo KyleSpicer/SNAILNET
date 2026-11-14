@@ -22,6 +22,7 @@ from snailnet_tests import (
     payload,
     read_to_eof,
 )
+from snailnet_tests.app import DELAY_DIRS
 from snailnet_tests.support import connect
 
 #: Exceeds RELAY_QUEUE_MAX_CB (1 MB) several times over, so the reader has to
@@ -85,6 +86,71 @@ def test_latency_applies_one_way(app, ports):
     assert roundtrip_ms < delay_ms * 1.6 + 500, (
         f"round trip was {roundtrip_ms:.0f} ms against {delay_ms} ms "
         "configured; the delay may be applied in both directions"
+    )
+
+
+def test_delay_list_defaults_to_client(app):
+    """The delay list starts on "To client", the documented default."""
+    assert app.delay_dir_index() == DELAY_DIRS["client"]
+
+
+#: (direction, inbound held, round trip in multiples of the latency,
+#:  status text)
+DIRECTION_CASES = [
+    ("target", True, 1, "ms to target"),
+    ("both", True, 2, "ms each way"),
+]
+
+
+@pytest.mark.parametrize(
+    "direction,inbound_held,trips,status_text",
+    DIRECTION_CASES,
+    ids=[case[0] for case in DIRECTION_CASES],
+)
+def test_delay_direction_is_applied(
+    app, ports, direction, inbound_held, trips, status_text
+):
+    """Choosing a direction holds that direction, and only that one.
+
+    Measured the same way as test_latency_applies_one_way: the target
+    stamps when the request arrived, which separates a delay on the way in
+    from one on the way back.
+    """
+    delay_ms = 1000
+
+    with EchoServer(ports.target) as server:
+        app.configure("127.0.0.1", ports.listen, "127.0.0.1", ports.target, delay_ms)
+        app.set_delay_dir(direction)
+        app.start()
+        assert_started(app)
+
+        with connect(ports.listen) as client:
+            sent_at = time.monotonic()
+            client.sendall(b"ping")
+            assert client.recv(4) == b"ping"
+            returned_at = time.monotonic()
+
+        assert server.first_byte_at, "the target never saw the request"
+        inbound_ms = (server.first_byte_at[0] - sent_at) * 1000.0
+        roundtrip_ms = (returned_at - sent_at) * 1000.0
+
+    assert status_text in app.status_line(), app.status_line()
+
+    if inbound_held:
+        assert inbound_ms >= delay_ms * 0.9, (
+            f"client->target took {inbound_ms:.0f} ms; {direction} should "
+            f"hold it for {delay_ms} ms"
+        )
+    else:
+        assert inbound_ms < 400, f"client->target took {inbound_ms:.0f} ms"
+
+    expected_ms = delay_ms * trips
+    assert (
+        roundtrip_ms >= expected_ms * 0.9
+    ), f"round trip was {roundtrip_ms:.0f} ms; expected about {expected_ms} ms"
+    assert roundtrip_ms < expected_ms + delay_ms * 0.6 + 500, (
+        f"round trip was {roundtrip_ms:.0f} ms against {expected_ms} ms "
+        "expected; a direction may be held that should not be"
     )
 
 

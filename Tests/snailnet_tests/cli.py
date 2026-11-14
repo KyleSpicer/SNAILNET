@@ -3,10 +3,12 @@
 Unlike :class:`snailnet_tests.app.SnailNet`, which drives the GUI through
 its window, this launches the executable with command line arguments and
 reads its stdout, stderr, and exit code directly: there is no window to
-find or wait for, and shutdown is a Ctrl+C, not a button.
+find or wait for, and shutdown is a console signal, not a button.
 """
 
 import ctypes
+import logging
+import pathlib
 import subprocess
 from typing import List, Optional, Tuple
 
@@ -15,10 +17,14 @@ from typing import List, Optional, Tuple
 #: rather than every process sharing a console with this one.
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
-#: Value GenerateConsoleCtrlEvent expects for a Ctrl+C.
-CTRL_C_EVENT = 0
+#: Value GenerateConsoleCtrlEvent expects for a Ctrl+Break. Ctrl+C cannot be
+#: used: Windows disables it in a new process group, and will not deliver it
+#: to a single group. SnailNet handles both signals in the same case.
+CTRL_BREAK_EVENT = 1
 
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+_log = logging.getLogger(__name__)
 
 
 def has_console() -> bool:
@@ -29,7 +35,8 @@ def has_console() -> bool:
     has nothing to deliver. A process launched by a harness that pipes
     or otherwise detaches standard handles can end up with no console at
     all, which is exactly the situation this exists to detect so a test
-    that depends on sending a real Ctrl+C can skip instead of hanging.
+    that depends on sending a real console signal can skip instead of
+    hanging.
 
     :return: True if GetConsoleWindow found one.
     """
@@ -74,6 +81,10 @@ class CliProcess:
             text=True,
             creationflags=CREATE_NEW_PROCESS_GROUP,
         )
+        command = subprocess.list2cmdline(
+            [pathlib.Path(self.exe_path).name, *self.args]
+        )
+        _log.info("ran: %s (pid %s)", command, self.proc.pid)
         return self
 
     @property
@@ -81,14 +92,15 @@ class CliProcess:
         """True while the process is still running."""
         return self.proc is not None and self.proc.poll() is None
 
-    def send_ctrl_c(self) -> None:
-        """Sends a real CTRL_C_EVENT to the process's console group.
+    def send_ctrl_break(self) -> None:
+        """Sends a real CTRL_BREAK_EVENT to the process's console group.
 
         Meaningful only when this process itself has a console; see
         :func:`has_console`. Without one, Windows has nothing to deliver
         the signal through and the call does nothing observable.
         """
-        _kernel32.GenerateConsoleCtrlEvent(CTRL_C_EVENT, self.proc.pid)
+        _log.info("sent Ctrl+Break to pid %s", self.proc.pid)
+        _kernel32.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, self.proc.pid)
 
     def wait(self, timeout: float = 20.0) -> Tuple[int, str, str]:
         """Waits for the process to exit and collects its output.
@@ -98,10 +110,12 @@ class CliProcess:
         :return: Exit code, stdout, and stderr.
         """
         stdout, stderr = self.proc.communicate(timeout=timeout)
+        _log.info("exited with code %s", self.proc.returncode)
         return self.proc.returncode, stdout, stderr
 
     def stop(self) -> None:
         """Kills the process if it is still running."""
         if self.alive:
+            _log.info("killing pid %s", self.proc.pid)
             self.proc.kill()
             self.proc.wait(timeout=5)

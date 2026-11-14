@@ -54,7 +54,8 @@ INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
             MessageBoxW(NULL, MSG_FAIL_WINSOCK, PROJ_NAME, MB_ICONERROR);
         }
 
-        return SNAILNET_FAIL_WINSOCK;
+        iStatus = SNAILNET_FAIL_WINSOCK;
+        goto EXIT_WMAIN;
     }
 
     if (bCliMode)
@@ -68,32 +69,51 @@ INT wmain(_In_ INT argc, _In_reads_(argc) PWSTR argv[])
 
     SocketLibCleanup();
 
+EXIT_WMAIN:
+
     return iStatus;
 
 } /* wmain */
 
 static INT RunGui(VOID)
 {
-    HWND hWindow = NULL;
-    MSG  Message = {0};
-    INT  iStatus = SNAILNET_SUCCESS;
+    HWND hWindow    = NULL;
+    MSG  Message    = {0};
+    INT  iStatus    = SNAILNET_SUCCESS;
+    BOOL bGetResult = FALSE;
+    BOOL bHandled   = FALSE;
 
-    /* Every launch gets a console now, even one headed for the GUI. Hidden
-       immediately so a double click from Explorer still ends up looking
-       like a plain GUI app once past an unavoidable, brief flash. */
+    /* A console subsystem binary gets a console on every launch, even one
+       headed for the GUI. Hiding it at once makes a launch from Explorer
+       look like a plain GUI app after a brief, unavoidable flash. */
     (VOID) ShowWindow(GetConsoleWindow(), SW_HIDE);
+
+    /* Before any window exists. Windows then scales the frame and common
+       controls itself, and Ui.c scales the layout, instead of stretching a
+       96 DPI bitmap of the window. */
+    (VOID) SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     hWindow = WindowCreate(GetModuleHandleW(NULL), SW_SHOWDEFAULT, &iStatus);
 
     if (NULL == hWindow)
     {
-        return iStatus;
+        goto EXIT_RUN_GUI;
     }
 
-    while (0 < GetMessageW(&Message, NULL, 0, 0))
+    for (;;)
     {
+        /* Zero is WM_QUIT and -1 is an error; either ends the loop. */
+        bGetResult = GetMessageW(&Message, NULL, 0, 0);
+
+        if (0 >= bGetResult)
+        {
+            break;
+        }
+
         /* IsDialogMessage gives us Tab navigation between the fields. */
-        if (!IsDialogMessageW(hWindow, &Message))
+        bHandled = IsDialogMessageW(hWindow, &Message);
+
+        if (!bHandled)
         {
             TranslateMessage(&Message);
             DispatchMessageW(&Message);
@@ -103,8 +123,11 @@ static INT RunGui(VOID)
     /* WM_DESTROY already did this. Repeating it costs nothing and covers the
        paths that leave the loop without going through the window procedure. */
     RelayStop();
+    iStatus = (INT)Message.wParam;
 
-    return (INT)Message.wParam;
+EXIT_RUN_GUI:
+
+    return iStatus;
 
 } /* RunGui */
 

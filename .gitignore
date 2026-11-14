@@ -65,8 +65,10 @@ venv/
 *.egg-info/
 
 # Sphinx build output
-docs/_build/
 Tests/docs/_build/
 
-# Test run artifacts
+# Test run artifacts (HTML report written in CI)
 Tests/reports/
+
+# User guide PDF, rendered locally or in CI
+/userguide.pdf
