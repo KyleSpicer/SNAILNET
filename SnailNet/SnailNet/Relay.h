@@ -6,9 +6,10 @@
  * accepts gets a session thread that opens its own connection to the target
  * and pumps both directions until either side closes.
  *
- * The delay is one way. Bytes travelling from the target back out to the
- * client are held; bytes on their way in to the target are forwarded as soon
- * as they arrive.
+ * The delay is one way by default. Bytes travelling from the target back out
+ * to the client are held; bytes on their way in to the target are forwarded
+ * as soon as they arrive. RELAY_CONFIG.DelayDir can move the delay to the
+ * other direction instead, or apply it to both.
  *
  * The delay is applied by stamping each chunk with a due time as it arrives
  * and holding it in a queue until that time passes. Sleeping on the read
@@ -36,7 +37,6 @@ typedef enum _RELAY_LIMITS
 {
     RELAY_ADDR_CCH     = 64,      /**< Characters in an address field */
     RELAY_PORT_CCH     = 8,       /**< Characters in a port field */
-    RELAY_MAX_SESSIONS = 64,      /**< Concurrent clients; MAXIMUM_WAIT_OBJECTS */
     RELAY_CHUNK_CB     = 16384,   /**< Bytes read per recv */
     RELAY_QUEUE_MAX_CB = 1048576, /**< Back pressure limit per direction */
     RELAY_ACCEPT_MS    = 250,     /**< Accept wait slice */
@@ -44,6 +44,12 @@ typedef enum _RELAY_LIMITS
     RELAY_NO_DELAY     = 0,       /**< Latency for an undelayed direction */
     RELAY_DRAIN_MS     = 5000,    /**< Total time allowed to flush a queue */
     RELAY_DRAIN_SLICE  = 100,     /**< Retry interval while flushing */
+
+    /** Most clients relayed at once; extras are closed on accept. Caps memory
+        (~3 MB per session: thread stack plus both queues), not a Windows
+        limit. Handles are waited on one at a time, so MAXIMUM_WAIT_OBJECTS
+        does not apply. */
+    RELAY_MAX_SESSIONS = 64,
 
     /** Upper bound on how long SessionPump ever waits on the session's events
         in one pass, even when both directions look like they have nothing to
@@ -100,11 +106,12 @@ typedef VOID(CALLBACK *RELAY_NOTIFY_PROC)(_In_opt_ PVOID    pContext,
  */
 typedef struct _RELAY_CONFIG
 {
-    WCHAR wszListenAddr[RELAY_ADDR_CCH]; /**< Local bind address */
-    WCHAR wszListenPort[RELAY_PORT_CCH]; /**< Local bind port */
-    WCHAR wszTargetAddr[RELAY_ADDR_CCH]; /**< Address to forward to */
-    WCHAR wszTargetPort[RELAY_PORT_CCH]; /**< Port to forward to */
-    DWORD dwLatencyMs;                   /**< Delay added to each direction */
+    WCHAR              wszListenAddr[RELAY_ADDR_CCH]; /**< Local bind address */
+    WCHAR              wszListenPort[RELAY_PORT_CCH]; /**< Local bind port */
+    WCHAR              wszTargetAddr[RELAY_ADDR_CCH]; /**< Address to forward to */
+    WCHAR              wszTargetPort[RELAY_PORT_CCH]; /**< Port to forward to */
+    DWORD              dwLatencyMs;                   /**< Delay added to a held direction */
+    SNAILNET_DELAY_DIR DelayDir;                      /**< Which directions are held */
 
 } RELAY_CONFIG, *PRELAY_CONFIG;
 

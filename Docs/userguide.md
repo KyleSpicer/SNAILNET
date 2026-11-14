@@ -22,10 +22,20 @@ network or either program.
 - [More examples](#more-examples)
 - [Limits and behavior worth knowing](#limits-and-behavior-worth-knowing)
 - [Troubleshooting](#troubleshooting)
+- [Release notes](#release-notes)
 
 ## Getting started
 
 **Requirements:** Windows 10 or later, 64-bit.
+
+SnailNet has been tested on these desktop versions of Windows:
+
+| Windows | Edition | Version | OS build |
+|---|---|---|---|
+| Windows 11 | Pro | 25H2 | 26200.9974 |
+| Windows 10 | Pro | 22H2 | 19045.6456 |
+
+To see your own version, press **Win+R**, type `winver`, and press Enter.
 
 SnailNet is a single file, `SnailNet.exe`. There is no installer and nothing
 else to install alongside it, not even the Visual C++ redistributable. Copy
@@ -56,9 +66,22 @@ its own connection to the **target** and forwards bytes between the two.
                     held for the latency, then forwarded
 ```
 
-The delay is **one way**: only traffic heading back to the client is held.
-A request reaches the target immediately and only the reply is delayed, so a
-request and response exchange pays the latency once, not twice.
+By default the delay is **one way**: only traffic heading back to the client
+is held. A request reaches the target immediately and only the reply is
+delayed, so a request and response exchange pays the latency once, not twice.
+
+You can choose which direction is held:
+
+| Delay applied | What is held | Use it to see |
+|---|---|---|
+| To client (default) | Replies, on their way back to the client | How a client copes with a slow server or a slow download |
+| To target | Requests, on their way out to the target. Replies come back at once | How a server copes with a slow client: late requests, slow uploads, and its own timeouts firing |
+| Both ways | Each direction, for the full latency | A link that is slow both ways. A request and response pays the latency **twice** |
+
+For a simple request and response, the client sees the same wait with
+**To client** and **To target**. The difference is which side sees the data
+late, and which way a one-sided stream (an upload, or a server pushing data)
+is slowed.
 
 Each client that connects gets its own connection to the target, so several
 clients can be relayed at once without affecting each other's timing.
@@ -67,26 +90,29 @@ clients can be relayed at once without affecting each other's timing.
 
 The window has three tabs: **Relay**, where you set it up and run it;
 **Help**, a short version of this guide; and **About**. You can resize or
-maximize it, and the fields widen to fit.
+maximize it, and the fields widen to fit. The version number is shown under
+the SnailNet title, at the top of the About tab, and on the first line of
+`SnailNet.exe --help`.
 
-On the **Relay** tab, fill in five fields:
+On the **Relay** tab, fill in six fields:
 
 | Field | Meaning | Default |
 |---|---|---|
-| Listen address | Where SnailNet accepts connections. `127.0.0.1` keeps it on this machine; `0.0.0.0` accepts connections from the network | `127.0.0.1` |
+| Listen address | Where SnailNet accepts connections. `127.0.0.1` keeps it on this machine; `0.0.0.0` accepts connections from the network. Up to 63 characters | `127.0.0.1` |
 | Listen port | The port your client connects to | `8080` |
-| Target address | The real server, as an IP address or hostname | `127.0.0.1` |
+| Target address | The real server, as an IP address or hostname, up to 63 characters | `127.0.0.1` |
 | Target port | The real server's port | `80` |
-| Latency (ms) | Delay applied to traffic on its way back to the client. `0` makes SnailNet a plain relay | `250` |
+| Latency (ms) | How long held traffic is delayed. `0` makes SnailNet a plain relay | `250` |
+| Delay applied | Which traffic is held: **To client**, **To target**, or **Both ways**. See [How it works](#how-it-works) | To client |
 
 Press **Start**, then point your client at the listen address and port.
 Press **Stop** to close the listener. Stop drops anything still in flight.
 
 The status block below the tabs stays visible from any tab. While the relay
-runs, it shows the listen and target addresses, the latency, and how many
-sessions are active and how many there have been in total. If something goes
-wrong, such as a port that is already in use or a target that refused the
-connection, it states the reason there.
+runs, it shows the listen and target addresses, the latency and its
+direction, and how many sessions are active and how many there have been in
+total. If something goes wrong, such as a port that is already in use or a
+target that refused the connection, it states the reason there.
 
 ## Command line mode
 
@@ -98,23 +124,33 @@ the window. Only the interface differs.
 SnailNet.exe --listen-port 8080 --target-addr 127.0.0.1 --target-port 9000 --latency 250
 ```
 
+Every flag also has a short form, so this does the same thing:
+
+```console
+SnailNet.exe -lp 8080 -ta 127.0.0.1 -tp 9000 -d 250
+```
+
 Every flag is optional. A flag you leave out uses the same default the
 window starts with:
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--listen-addr <address>` | Where SnailNet accepts connections | `127.0.0.1` |
-| `--listen-port <port>` | The port your client connects to | `8080` |
-| `--target-addr <address>` | The real server | `127.0.0.1` |
-| `--target-port <port>` | The real server's port | `80` |
-| `--latency <ms>` | Delay on the way back to the client | `250` |
-| `--help`, `-h`, `-?` | Show the flags and exit | |
+| `-la`, `--listen-addr <address>` | Where SnailNet accepts connections | `127.0.0.1` |
+| `-lp`, `--listen-port <port>` | The port your client connects to | `8080` |
+| `-ta`, `--target-addr <address>` | The real server | `127.0.0.1` |
+| `-tp`, `--target-port <port>` | The real server's port | `80` |
+| `-d`, `--latency <ms>` | How long held traffic is delayed | `250` |
+| `-dd`, `--delay-dir <direction>` | Which traffic is held: `client`, `target`, or `both`. See [How it works](#how-it-works) | `client` |
+| `-h`, `-?`, `--help` | Show the flags and exit | |
+
+Error messages always name the long form of a flag, even when you typed the
+short one.
 
 Once running, SnailNet prints its settings, then a timestamped line as each
 session starts and ends:
 
 ```text
-Listening on 127.0.0.1:8080, forwarding to 127.0.0.1:9000, latency 250 ms
+Listening on 127.0.0.1:8080, forwarding to 127.0.0.1:9000, latency 250 ms to client
 Press Ctrl+C to stop.
 [14:02:11] Session started (1 active, 1 total)
 [14:02:13] Session closed (0 active, 1 total)
@@ -143,11 +179,9 @@ to tell a clean run from a failed one.
 
 ## Example: local loopback with ncat
 
-These examples use [ncat](https://nmap.org/ncat/), which comes with Nmap,
-as both client and server. That way you can see the delay without a real
-application.
-
-Everything here runs on one machine.
+This example uses [ncat](https://nmap.org/ncat/), which comes with Nmap,
+as both client and server, so you can see the delay without a real
+application. Everything runs on one machine.
 
 ```text
     ncat client              SnailNet             ncat server
@@ -192,6 +226,12 @@ Everything here runs on one machine.
 4. Type in the client window and the text reaches the server instantly. Type
    in the server window and it takes two seconds to reach the client. That is
    the one-way delay.
+
+5. To delay the other direction, stop SnailNet, set **Delay applied** to
+   **To target** (or add `--delay-dir target` on the command line) and start
+   it again. Now typing in the client takes two seconds to reach the server,
+   and the server's replies arrive at once. With **Both ways**, each
+   direction takes two seconds.
 
 ## Example: remote client, Ubuntu to a Windows target
 
@@ -296,11 +336,11 @@ count in the status block rises and falls as they connect and disconnect.
 ## Limits and behavior worth knowing
 
 - **TCP only.** UDP traffic is not relayed.
-- **The delay is fixed and one way.** Every chunk of data heading back to the
-  client is held for the same number of milliseconds. There is no jitter,
-  packet loss, or bandwidth shaping.
+- **The delay is fixed.** Every chunk of data in a held direction is held
+  for the same number of milliseconds. There is no jitter, packet loss, or
+  bandwidth shaping.
 - **A long delay also limits throughput.** SnailNet holds at most 1 MB of
-  delayed data per connection, so the most it can deliver is roughly
+  delayed data per direction, per connection, so the most it can deliver is roughly
   1 MB divided by the latency in seconds. At 250 ms that is about 4 MB per
   second; at 2000 ms, about 0.5 MB per second.
 - **The target is only checked when a client connects.** Pressing Start
@@ -309,6 +349,18 @@ count in the status block rises and falls as they connect and disconnect.
   client connects, and that client is disconnected.
 - **Stop drops in-flight data.** Anything still held in the delay when you
   press Stop or Ctrl+C is discarded.
+- **Prefer `127.0.0.1` to `localhost`.** Windows resolves `localhost` to the
+  IPv6 address `::1` first and the IPv4 address `127.0.0.1` second, which
+  affects the two address fields differently:
+  - **Target address:** SnailNet tries each address in turn, so `localhost`
+    works. But if the real server listens only on `127.0.0.1`, the `::1`
+    attempt is refused first, and Windows takes about two seconds to report
+    a refusal. Every client connection then waits about two seconds before
+    any data moves. `127.0.0.1` connects at once.
+  - **Listen address:** SnailNet listens on one address only, so `localhost`
+    means `::1`. Clients that connect to `localhost` still reach it, but a
+    client that connects to `127.0.0.1` is refused. Use `127.0.0.1` here,
+    and point the client at the same address.
 
 ## Troubleshooting
 
@@ -319,5 +371,36 @@ count in the status block rises and falls as they connect and disconnect.
 | A remote client cannot connect at all | The firewall rule from the remote example is missing, or the two machines cannot reach each other on the network |
 | Start fails on a port you were just using | Windows can keep the previous socket for a short time after Stop. Wait a moment and try again |
 | The client connects but is disconnected immediately | Nothing is listening at the target address and port. Check that the real server is running and that you entered its port, not SnailNet's listen port |
+| Every connection takes about two seconds longer than the latency setting | The target address is `localhost` and the real server listens only on IPv4. Set Target address to `127.0.0.1`. See [Limits and behavior worth knowing](#limits-and-behavior-worth-knowing) |
+| Clients are refused, but Start succeeded | The listen address is `localhost`, which SnailNet listens on as IPv6 `::1`, and the client connects to `127.0.0.1`. Set Listen address to `127.0.0.1` |
 | Large transfers are slower than expected | See the throughput limit under [Limits and behavior worth knowing](#limits-and-behavior-worth-knowing). Lower the latency, or expect it |
-| The command line says "unrecognised argument" | Check the spelling against `SnailNet.exe --help`. Flags use two dashes |
+| Requests reach the server late, or a round trip takes twice the latency | **Delay applied** is set to **To target** or **Both ways** (`--delay-dir`). Set it back to **To client** for the default one-way delay on replies |
+| The command line says "unrecognised argument" | Check the spelling against `SnailNet.exe --help`. Long flags take two dashes (`--latency`), short ones one (`-d`) |
+
+## Release notes
+
+### 1.0.0 - Unreleased
+
+First release.
+
+#### Added
+
+- A TCP relay that holds traffic heading back to the client for a fixed
+  number of milliseconds. Traffic to the server is forwarded at once, so a
+  request and response pays the latency once.
+- A choice of which direction is held: to the client (the default), to the
+  target, or both ways.
+- A window for setting the listen address and port, the target address and
+  port, the latency and its direction, with Start and Stop buttons and a status block that
+  counts active and total sessions. The window can be resized and scales
+  cleanly on high-DPI displays.
+- A command line mode in the same executable: `--listen-addr`,
+  `--listen-port`, `--target-addr`, `--target-port`, `--latency`,
+  `--delay-dir`, and `--help`, each with a short form. Ctrl+C stops it, and the exit code is `0` for a clean stop and
+  `1` for a bad argument or a failure.
+- Several clients at once, each with its own connection to the target.
+- Up to 1 MB of delayed data held per connection, so a slow client applies
+  back pressure instead of growing memory without limit.
+- A half close from either side is passed through, not turned into a full
+  close.
+- A User Guide, shipped as `userguide.pdf` with each release.

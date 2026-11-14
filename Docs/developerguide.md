@@ -37,9 +37,8 @@ msbuild SnailNet.slnx /p:Configuration=Release /p:Platform=x86
 ```
 
 `/p:Platform=Win32` fails with `MSB4126: The specified solution
-configuration "Release|Win32" is invalid`. This asymmetry comes from the
-`.slnx`, not from anything you can fix in a project file, so it is worth
-knowing rather than working around.
+configuration "Release|Win32" is invalid`. The mismatch comes from the
+`.slnx`, not from anything a project file can fix.
 
 ## Project settings that matter
 
@@ -50,18 +49,13 @@ add a new configuration or a new project to the solution:
 |---|---|---|
 | Runtime Library | `/MT` (Release), `/MTd` (Debug) | Links the CRT statically so the exe runs without the VC++ redistributable |
 | SubSystem | `Console` | The entry point is `wmain`, not `wWinMain`; see [Command line mode](#command-line-mode) for why |
+| C Language Standard | `/std:c17` | Pins the C dialect instead of MSVC's legacy C mode, and turns on the conforming preprocessor. Every source is C, so the C++ standard setting is left at its default |
 | Warning Level | `/W4` | Catches indirection and sign mismatches that `/W3` lets through |
 
 **If you add a static library to the project, it must use the same runtime
 setting.** Mixing `/MT` and `/MD` produces `LNK2038`, or worse, a build that
 links and then corrupts the heap because two CRT copies each think they own
 the allocator.
-
-Function signatures throughout the codebase carry SAL annotations
-(`_In_`, `_Out_opt_`, `_Inout_`, and so on). They do not currently gate the
-build; `/analyze` is not wired into either `.vcxproj`. They still document
-ownership and nullability at every call site, which is why they are kept up
-to date even without a checker enforcing them.
 
 ## Project layout
 
@@ -77,7 +71,7 @@ dependency on the GUI; `SnailNet` is the application built on top of it.
 | `SnailNet/Ui.c`, `.h` | Window class registration, control layout, fonts, the window procedure |
 | `SnailNet/Commands.c`, `.h` | Start/Stop handlers: validates the form, drives the relay, updates the status line |
 | `SnailNet/Relay.c`, `.h` | The relay itself: one accept thread, one session thread per client, the delay queue. Knows nothing about windows or consoles; see [Command line mode](#command-line-mode) |
-| `SnailNet/Help.c`, `.h` | Static text for the Help and About tabs |
+| `SnailNet/Help.c`, `.h` | Static text: the Help and About tabs, and how each delay direction is described |
 | `SnailNet/Snailnet.h` | Shared constants: labels, defaults, layout, limits, exit codes |
 | `SnailNet/Resource.h`, `.rc` | The window icon resource |
 
@@ -86,14 +80,22 @@ dependency on the GUI; `SnailNet` is the application built on top of it.
 
 ## How the relay delays traffic
 
-The user-visible behavior (one-way delay, one session per client) is
-described in [userguide.md](userguide.md#how-it-works). The part that only
-matters inside `Relay.c`: delayed bytes are not produced by sleeping on the
-socket. Each chunk read from the target is stamped with the moment it
-becomes due (arrival time plus the configured latency) and queued, and a
-background pass releases it once that time passes. Sleeping on the read
-would add the same delay but also cap throughput at one buffer per
-interval; stamping and queuing does not.
+The user-visible behavior (a one-way delay by default, one session per
+client) is described in [userguide.md](userguide.md#how-it-works).
+
+Each session has two directions, `ToTarget` and `ToClient`, and each gets
+its own latency when the session starts. `RELAY_CONFIG.DelayDir` (a
+`SNAILNET_DELAY_DIR` from `Snailnet.h`) decides which: the full latency on
+the held direction, `RELAY_NO_DELAY` on the other, or the full latency on
+both. Nothing else in the pump knows or cares which way is held. The GUI's
+**Delay applied** list is filled in `SNAILNET_DELAY_DIR` order, so its
+selected index is the value; keep the two in step.
+
+Delayed bytes are not produced by sleeping on the socket. Each chunk read
+is stamped with the moment it becomes due (arrival time plus that
+direction's latency) and queued, and the pump releases it once that time
+passes. Sleeping on the read would add the same delay but also cap
+throughput at one buffer per interval; stamping and queuing does not.
 
 The queue is capped at `RELAY_QUEUE_MAX_CB` (1 MB) per direction, after
 which the relay stops reading from that side until the queue drains. That
@@ -104,7 +106,7 @@ the User Guide documents as a limit.
 
 With any argument at all, `wmain` dispatches to `CliRun` instead of the
 GUI; see [userguide.md](userguide.md#command-line-mode) for the flags
-themselves. Two decisions worth knowing if you touch this:
+themselves. Three things worth knowing if you touch this:
 
 **The project builds as `Console`, not `Windows`.** A Win32 executable's
 subsystem is fixed at link time, so a single binary that is sometimes a
@@ -153,6 +155,16 @@ enforce, already in use throughout the C sources:
   a single `EXIT_FUNCTION_NAME:` label at the end and `goto` there on every
   early return, rather than returning from the middle. Look at any function
   in `Relay.c` or `Sockets.c` for the pattern.
+- **No function calls inside a condition.** Store the return value on its
+  own line, then test the variable: `hResult = StringCchCopyW(...);` followed
+  by `if (FAILED(hResult))`, never `if (FAILED(StringCchCopyW(...)))`. The same goes
+  for `while` and `switch`. Every result can then be read in a debugger, and
+  each line does one thing. Macros that only test a value, such as
+  `SOCKET_IS_ERROR(SockStatus)`, are fine.
+- **No names under three characters.** Variables, parameters and macro
+  parameters follow the Hungarian style used everywhere else: `hResult`,
+  not `hr`; `iIndex`, not `i`, even for a loop counter. Windows API struct
+  fields such as `POINT.x` keep their own names.
 - **Every public function is documented with a Doxygen `/** @brief */`
   comment** in its header, including parameter directions and what each
   return value means.
@@ -162,13 +174,13 @@ enforce, already in use throughout the C sources:
   `SocketStatusText` is a good example: sixteen fixed strings, all defined
   together above the function that returns them.
 - **SAL annotations on every parameter** (`_In_`, `_Out_opt_`, `_Inout_`,
-  and so on), even though `/analyze` is not currently run; see
-  [above](#project-settings-that-matter).
+  and so on). `/analyze` is not run, so nothing enforces them; they are
+  kept current because they document ownership and nullability.
 
 ## Testing
 
-An automated suite drives the built executable through its window, moving
-real TCP traffic through the relay and checking what arrives. See
+An automated suite drives the built executable through its window and its
+command line, moving real TCP traffic through the relay and checking what arrives. See
 [testguide.md](testguide.md) for how to run it, what it covers, and how to
 read a failure.
 
@@ -180,23 +192,28 @@ Issues and pull requests are welcome.
 2. Keep the conventions above; `pre-commit` will catch formatting.
 3. Build clean at `/W4`, for both x64 configurations.
 4. Run the test suite before opening the pull request.
-5. Add a line to `CHANGELOG.md` for any change a user would notice. New
-   entries go under the top heading; if that heading is a released
-   version, add `## Unreleased` above it first.
+5. Add a line under **Release notes** in `Docs/userguide.md` for any change
+   a user would notice. New entries go under the top version heading; if
+   that heading is a released version, add `### Unreleased` above it first.
 6. Reference the issue in the pull request description with `Closes #12`.
 
 ## Releases
 
-Releases are tagged `vMAJOR.MINOR.PATCH`. From v1.0.0 on, the command line
+Releases are tagged `vMAJOR.MINOR.PATCH`, following
+[Semantic Versioning](https://semver.org/). From v1.0.0 on, the command line
 flags, their defaults, and the exit codes are public interface: changing any
 of them is a major version bump.
 
 When cutting a release, bump the version in all of these together:
 
 - `README.md` (the heading)
-- `Docs/userguide.md` (the `Version` line under the title)
+- `Docs/userguide.md` (the `Version` line under the title, and the top
+  heading under Release notes, renamed to `### x.y.z - YYYY-MM-DD`)
+- `SnailNet/SnailNet/Version.h` (the three numbers and the string). This
+  one file sets the version in the executable's file properties, the first
+  line of `--help`, the About tab, and the line under the window's title.
+  The tests read the expected version from it too
 - `Tests/pyproject.toml` and `Tests/docs/conf.py` (`release`)
-- `CHANGELOG.md` (rename the top heading to `## x.y.z - YYYY-MM-DD`)
 
 ### What the release package contains
 

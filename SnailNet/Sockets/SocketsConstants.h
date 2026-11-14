@@ -29,8 +29,10 @@
 #define SOCKET_LISTEN_BACKLOG SOMAXCONN
 
 /** Address resolution hints: TCP over IPv4 or IPv6, whichever the address
-    resolves to. Listeners add SOCKET_RESOLVE_PASSIVE_FLAGS so an empty
-    address binds every interface. */
+    resolves to. Listeners add SOCKET_RESOLVE_PASSIVE_FLAGS, which only
+    matters for a NULL address (it then yields the wildcard). SnailNet
+    always passes a non-blank address, so to listen on every interface use
+    0.0.0.0. */
 #define SOCKET_RESOLVE_FAMILY AF_UNSPEC
 #define SOCKET_RESOLVE_SOCKTYPE SOCK_STREAM
 #define SOCKET_RESOLVE_PROTOCOL IPPROTO_TCP

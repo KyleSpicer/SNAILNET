@@ -4,6 +4,7 @@ import collections
 import datetime
 import html
 import pathlib
+import re
 import subprocess
 import sys
 import textwrap
@@ -18,6 +19,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 #: Where MSBuild puts the executable, per OutDir in SnailNet.vcxproj.
 DEFAULT_EXE = REPO_ROOT / "SnailNet" / "Build" / "x64" / "Release" / "SnailNet.exe"
+
+#: The one place the version is set; see Docs/developerguide.md, Releases.
+VERSION_HEADER = REPO_ROOT / "SnailNet" / "SnailNet" / "Version.h"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -62,6 +66,25 @@ def exe_path_fixture(pytestconfig: pytest.Config) -> str:
         )
 
     return str(path)
+
+
+@pytest.fixture(name="expected_version", scope="session")
+def expected_version_fixture() -> str:
+    """The version the executable should report, read from Version.h.
+
+    Read from the source rather than written here, so a version bump does
+    not also need a test edit, and a build that missed the bump is caught.
+
+    :raises pytest.UsageError: If Version.h has no SNAILNET_VERSION_STR.
+    :return: The version text, such as ``1.0.0``.
+    """
+    source = VERSION_HEADER.read_text(encoding="utf-8")
+    found = re.search(r'#define\s+SNAILNET_VERSION_STR\s+"([^"]+)"', source)
+
+    if found is None:
+        raise pytest.UsageError(f"no SNAILNET_VERSION_STR in {VERSION_HEADER}")
+
+    return found.group(1)
 
 
 @pytest.fixture(scope="session", autouse=True)

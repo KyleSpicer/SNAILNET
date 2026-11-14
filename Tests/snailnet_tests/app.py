@@ -55,12 +55,22 @@ IDC_LATENCY = 105
 IDC_START = 106
 IDC_STOP = 107
 IDC_STATUS = 108
+IDC_ABOUT_TEXT = 113
+IDC_VERSION = 119
+IDC_DELAY_DIR = 120
 
+#: Index of each choice in the delay list, mirroring SNAILNET_DELAY_DIR,
+#: which is the order Ui.c adds them in.
+DELAY_DIRS = {"client": 0, "target": 1, "both": 2}
+
+WM_NULL = 0x0000
 WM_CLOSE = 0x0010
 WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 WM_COMMAND = 0x0111
+CB_GETCURSEL = 0x0147
+CB_SETCURSEL = 0x014E
 BN_CLICKED = 0
 
 #: Give up rather than wait out a UI thread that is not pumping messages.
@@ -68,6 +78,9 @@ SMTO_ABORTIFHUNG = 0x0002
 
 #: Milliseconds allowed for a single text read.
 READ_TIMEOUT_MS = 2000
+
+#: Seconds a field write may keep retrying before configure gives up.
+WRITE_TIMEOUT_S = 5.0
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
@@ -170,7 +183,12 @@ class SnailNet:
 
         The window is also created before ``BuildControls`` has finished
         populating it, so this waits for the Start button to exist rather
-        than for the window alone.
+        than for the window alone. That still happens inside ``WM_CREATE``,
+        before the message loop runs, and a ``WM_SETTEXT`` sent in that gap
+        can fail and leave the field at its default. So this then waits until
+        the window answers a ``WM_NULL``, which it can only do once it is
+        pumping messages. A fixed pause used to stand in for that, and a
+        slow start, such as the 32-bit build under WOW64, outran it.
 
         :param timeout: Seconds to wait for the window to become usable.
         :raises SnailNetError: If no usable window appears in time.
@@ -190,17 +208,39 @@ class SnailNet:
 
             if hwnd and _user32.GetDlgItem(hwnd, IDC_START):
                 self.hwnd = hwnd
+                self._wait_until_pumping(deadline)
                 _log.info(
                     "launched SnailNet.exe (pid %s), window 0x%X", self.proc.pid, hwnd
                 )
-                # The fonts are applied right after the controls are created.
-                # Settling here keeps the first field write from racing it.
-                time.sleep(0.3)
                 return self
 
             time.sleep(0.05)
 
         raise SnailNetError(f"SnailNet window did not appear within {timeout}s")
+
+    def _wait_until_pumping(self, deadline: float) -> None:
+        """Waits until the window's thread is processing messages.
+
+        :param deadline: ``time.monotonic()`` value to give up at.
+        :raises SnailNetError: If the window never answers in time.
+        """
+        while time.monotonic() < deadline:
+            answered = _user32.SendMessageTimeoutW(
+                self.hwnd,
+                WM_NULL,
+                0,
+                None,
+                SMTO_ABORTIFHUNG,
+                READ_TIMEOUT_MS,
+                None,
+            )
+
+            if answered:
+                return
+
+            time.sleep(0.05)
+
+        raise SnailNetError("SnailNet window never started processing messages")
 
     def close(self, timeout: float = 20.0) -> None:
         """Asks the application to exit, then kills it if it does not.
@@ -247,14 +287,15 @@ class SnailNet:
 
         return hctl
 
-    def _set_text(self, ctl_id: int, text: str) -> None:
+    def _set_text(self, ctl_id: int, text: str) -> bool:
         """Sets a control's text so the owning process sees the change.
 
         :param ctl_id: Control identifier.
         :param text: Replacement text.
+        :return: True if the control accepted the message.
         """
         buf = ctypes.create_unicode_buffer(text)
-        _user32.SendMessageTimeoutW(
+        sent = _user32.SendMessageTimeoutW(
             self._control(ctl_id),
             WM_SETTEXT,
             0,
@@ -263,12 +304,57 @@ class SnailNet:
             READ_TIMEOUT_MS,
             None,
         )
+        return bool(sent)
+
+    def _write_field(self, ctl_id: int, text: str) -> None:
+        """Sets a field and confirms it took, retrying briefly if not.
+
+        A write that silently fails leaves the field at its default, and the
+        test then runs against the defaults without noticing. Reading the
+        value back turns that into a clear error instead.
+
+        :param ctl_id: Control identifier.
+        :param text: Replacement text.
+        :raises SnailNetError: If the field still does not hold ``text``
+            after WRITE_TIMEOUT_S.
+        """
+        deadline = time.monotonic() + WRITE_TIMEOUT_S
+        held: Optional[str] = None
+
+        while time.monotonic() < deadline:
+            sent = self._set_text(ctl_id, text)
+            held = self._read_text(ctl_id)
+
+            if sent and held == text:
+                return
+
+            _log.info(
+                "field %s did not take %r yet (holds %r); retrying", ctl_id, text, held
+            )
+            time.sleep(0.05)
+
+        raise SnailNetError(
+            f"field {ctl_id} would not take {text!r}; it holds {held!r}"
+        )
 
     def _get_text(self, ctl_id: int) -> str:
         """Reads a control's text, returning empty if the app is not pumping.
 
         :param ctl_id: Control identifier.
         :return: The control's text, or an empty string on timeout.
+        """
+        text = self._read_text(ctl_id)
+        return "" if text is None else text
+
+    def _read_text(self, ctl_id: int) -> Optional[str]:
+        """Reads a control's text, or reports that the read failed.
+
+        Unlike _get_text, a failed read is None rather than an empty
+        string, so a check that a field was cleared cannot mistake a
+        failed read for success.
+
+        :param ctl_id: Control identifier.
+        :return: The control's text, or None if a message timed out.
         """
         hctl = self._control(ctl_id)
         length = ctypes.c_ulonglong(0)
@@ -282,7 +368,7 @@ class SnailNet:
             READ_TIMEOUT_MS,
             ctypes.byref(length),
         ):
-            return ""
+            return None
 
         size = int(length.value) + 1
         buf = ctypes.create_unicode_buffer(size + 1)
@@ -296,7 +382,7 @@ class SnailNet:
             READ_TIMEOUT_MS,
             None,
         ):
-            return ""
+            return None
 
         return buf.value
 
@@ -310,7 +396,7 @@ class SnailNet:
         target_port: object,
         latency_ms: object,
     ) -> None:
-        """Fills in all five relay fields.
+        """Fills in all five relay fields, confirming each one took.
 
         Values are stringified rather than validated, because rejecting bad
         input is the application's job and several tests exist to prove it
@@ -321,6 +407,7 @@ class SnailNet:
         :param target_addr: Address SnailNet forwards to.
         :param target_port: Port SnailNet forwards to.
         :param latency_ms: Delay applied on the way back to the client.
+        :raises SnailNetError: If a field will not hold its value.
         """
         _log.info(
             "configure listen %s:%s target %s:%s latency %s",
@@ -330,11 +417,53 @@ class SnailNet:
             target_port,
             latency_ms,
         )
-        self._set_text(IDC_LISTEN_ADDR, str(listen_addr))
-        self._set_text(IDC_LISTEN_PORT, str(listen_port))
-        self._set_text(IDC_TARGET_ADDR, str(target_addr))
-        self._set_text(IDC_TARGET_PORT, str(target_port))
-        self._set_text(IDC_LATENCY, str(latency_ms))
+        self._write_field(IDC_LISTEN_ADDR, str(listen_addr))
+        self._write_field(IDC_LISTEN_PORT, str(listen_port))
+        self._write_field(IDC_TARGET_ADDR, str(target_addr))
+        self._write_field(IDC_TARGET_PORT, str(target_port))
+        self._write_field(IDC_LATENCY, str(latency_ms))
+
+    def set_delay_dir(self, direction: str) -> None:
+        """Picks which way the latency applies, confirming the choice took.
+
+        Sends ``CB_SETCURSEL`` straight to the combo box, for the same
+        cross-process reason the edit fields use ``WM_SETTEXT``. The
+        application reads the selection only when Start is pressed, so no
+        change notification is needed.
+
+        :param direction: ``"client"``, ``"target"`` or ``"both"``.
+        :raises SnailNetError: If the list will not hold the selection.
+        """
+        index = DELAY_DIRS[direction]
+        _log.info("delay direction %s", direction)
+        hctl = self._control(IDC_DELAY_DIR)
+        _user32.SendMessageTimeoutW(
+            hctl, CB_SETCURSEL, index, None, SMTO_ABORTIFHUNG, READ_TIMEOUT_MS, None
+        )
+
+        if self.delay_dir_index() != index:
+            raise SnailNetError(f"delay list would not select {direction!r}")
+
+    def delay_dir_index(self) -> Optional[int]:
+        """Returns the delay list's selected index, or None if unreadable.
+
+        :return: The index, -1 when nothing is selected, or None if
+            the message timed out.
+        """
+        result = ctypes.c_ulonglong(0)
+
+        if not _user32.SendMessageTimeoutW(
+            self._control(IDC_DELAY_DIR),
+            CB_GETCURSEL,
+            0,
+            None,
+            SMTO_ABORTIFHUNG,
+            READ_TIMEOUT_MS,
+            ctypes.byref(result),
+        ):
+            return None
+
+        return ctypes.c_longlong(result.value).value
 
     def _click(self, ctl_id: int) -> None:
         """Posts the ``WM_COMMAND`` a real button click would send.
@@ -364,6 +493,33 @@ class SnailNet:
     def status(self) -> str:
         """Returns the current status text, newlines and all."""
         return self._get_text(IDC_STATUS)
+
+    def version_label(self) -> str:
+        """Returns the version line shown under the title."""
+        return self._read_text_retrying(IDC_VERSION)
+
+    def about_text(self) -> str:
+        """Returns the About tab's text, whichever tab is showing."""
+        return self._read_text_retrying(IDC_ABOUT_TEXT)
+
+    def _read_text_retrying(self, ctl_id: int) -> str:
+        """Reads a control's text, retrying a read that fails outright.
+
+        :param ctl_id: Control identifier.
+        :return: The text, or an empty string if no read succeeded within
+            WRITE_TIMEOUT_S.
+        """
+        deadline = time.monotonic() + WRITE_TIMEOUT_S
+
+        while time.monotonic() < deadline:
+            text = self._read_text(ctl_id)
+
+            if text is not None:
+                return text
+
+            time.sleep(0.05)
+
+        return ""
 
     def status_line(self) -> str:
         """Returns the status text flattened to one line, for assertions.

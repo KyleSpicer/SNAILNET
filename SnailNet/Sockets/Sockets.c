@@ -17,6 +17,10 @@
  * @param bPassive    TRUE for a bind address, FALSE for a connect target.
  * @param ppaiResults Receives the list. Caller frees with FreeAddrInfoW.
  *
+ * @details The whole list is returned, in the resolver's preference order.
+ * Connecting walks every entry; listening binds only the first. See
+ * SocketConnConnect and SocketContextInit for why each does what it does.
+ *
  * @return SOCKET_STATUS_SUCCESS on success, error code on failure.
  */
 static SOCKET_STATUS ResolveHostAddress(_In_z_ PCWSTR        pwszAddress,
@@ -49,6 +53,26 @@ WaitForNetworkOrAbort(_In_ WSAEVENT hNetworkEvent, _In_ DWORD dwTimeoutMs, _In_o
  */
 static SOCKET_STATUS CreateEventSocket(_In_ PADDRINFOW paiEntry,
                                        _In_ LONG       lEvents,
+                                       _Out_ SOCKET   *pSocket,
+                                       _Out_ WSAEVENT *phEvent);
+
+/**
+ * @brief Dials one resolved address and waits for the handshake to finish.
+ *
+ * @param paiEntry    Address entry to connect to.
+ * @param dwTimeoutMs Wait limit for this attempt, or INFINITE.
+ * @param hAbort      Optional cancel event.
+ * @param pSocket     Receives the connected socket, still selected for
+ *                    FD_CONNECT | SOCKET_CONN_EVENTS.
+ * @param phEvent     Receives the socket's event.
+ *
+ * @return SOCKET_STATUS_SUCCESS, SOCKET_STATUS_TIMEOUT,
+ *         SOCKET_STATUS_ABORTED, or an error code. On failure the socket
+ *         and event are closed and the out parameters are left invalid.
+ */
+static SOCKET_STATUS ConnectOneAddress(_In_ PADDRINFOW paiEntry,
+                                       _In_ DWORD      dwTimeoutMs,
+                                       _In_opt_ HANDLE hAbort,
                                        _Out_ SOCKET   *pSocket,
                                        _Out_ WSAEVENT *phEvent);
 
@@ -172,6 +196,15 @@ SocketContextInit(_Inout_ PSOCKET_CTX pSocketCtx, _In_z_ PCWSTR pwszAddress, _In
         goto EXIT_CTX_INIT;
     }
 
+    /* Only the first result is used, deliberately. The context owns one
+       listening socket, and the address is normally a literal such as
+       127.0.0.1 or 0.0.0.0, which resolves to exactly one entry. A hostname
+       such as "localhost" can resolve to several, and only the first (::1
+       before 127.0.0.1) is bound. Binding them all would need a socket and
+       event per address, and an accept loop that waits on every one.
+       Falling back to the next entry would not help either: binding ::1
+       succeeds, so the fallback never runs, while IPv4 clients still cannot
+       reach it. SocketConnConnect, by contrast, tries every result. */
     SockStatus = CreateEventSocket(pSocketCtx->paiResults,
                                    FD_ACCEPT,
                                    &pSocketCtx->Socket,
@@ -429,13 +462,16 @@ SocketConnConnect(_Inout_ PSOCKET_CONN pConn,
                   _In_ DWORD           dwTimeoutMs,
                   _In_opt_ HANDLE      hAbort)
 {
-    SOCKET_STATUS    SockStatus = SOCKET_STATUS_ERROR;
-    WSANETWORKEVENTS NetEvents  = {0};
-    PADDRINFOW       paiResults = NULL;
-    SOCKET           sSocket    = INVALID_SOCKET;
-    WSAEVENT         hEvent     = WSA_INVALID_EVENT;
-    SIZE_T           cbPeer     = 0;
-    INT              iResult    = 0;
+    SOCKET_STATUS SockStatus  = SOCKET_STATUS_ERROR;
+    PADDRINFOW    paiResults  = NULL;
+    PADDRINFOW    paiEntry    = NULL;
+    SOCKET        sSocket     = INVALID_SOCKET;
+    WSAEVENT      hEvent      = WSA_INVALID_EVENT;
+    ULONGLONG     ullDeadline = 0;
+    ULONGLONG     ullNow      = 0;
+    DWORD         dwAttemptMs = dwTimeoutMs;
+    SIZE_T        cbPeer      = 0;
+    INT           iResult     = 0;
 
     if ((NULL == pConn) || (NULL == pwszAddress) || (NULL == pwszPort))
     {
@@ -452,56 +488,58 @@ SocketConnConnect(_Inout_ PSOCKET_CONN pConn,
         goto EXIT_CONNECT;
     }
 
-    /* FD_CONNECT is in the mask only until the handshake completes; it is
-       replaced below so the caller never has to filter it out again. */
-    SockStatus = CreateEventSocket(paiResults, FD_CONNECT | SOCKET_CONN_EVENTS, &sSocket, &hEvent);
+    /* A hostname can resolve to several addresses, and the first is not
+       always one the target listens on: "localhost" yields ::1 before
+       127.0.0.1, so a server bound only to 127.0.0.1 refuses the first try.
+       Each address is tried in resolver order until one connects. The
+       timeout covers the whole call, not each attempt, so a target with
+       many unreachable addresses still gives up when the caller expects. */
+    if (INFINITE != dwTimeoutMs)
+    {
+        ullDeadline = GetTickCount64() + dwTimeoutMs;
+    }
 
-    if (SOCKET_IS_ERROR(SockStatus))
+    for (paiEntry = paiResults; NULL != paiEntry; paiEntry = paiEntry->ai_next)
+    {
+        /* The first address always gets an attempt, even with a zero
+           timeout, so the call never fails without having dialled. */
+        if ((INFINITE != dwTimeoutMs) && (paiResults != paiEntry))
+        {
+            ullNow = GetTickCount64();
+
+            if (ullNow >= ullDeadline)
+            {
+                SockStatus = SOCKET_STATUS_TIMEOUT;
+                goto EXIT_CONNECT;
+            }
+
+            dwAttemptMs = (DWORD)(ullDeadline - ullNow);
+        }
+
+        SockStatus = ConnectOneAddress(paiEntry, dwAttemptMs, hAbort, &sSocket, &hEvent);
+
+        if (SOCKET_STATUS_SUCCESS == SockStatus)
+        {
+            break;
+        }
+
+        /* An abort, or a timeout that has used up the budget, ends the
+           whole call. Any other failure, such as a refusal or a family
+           the machine has no stack for, moves on to the next address. */
+        if ((SOCKET_STATUS_ABORTED == SockStatus) || (SOCKET_STATUS_TIMEOUT == SockStatus))
+        {
+            goto EXIT_CONNECT;
+        }
+    }
+
+    /* Every address failed; SockStatus holds the last attempt's error. */
+    if (NULL == paiEntry)
     {
         goto EXIT_CONNECT;
     }
 
-    iResult = connect(sSocket, paiResults->ai_addr, (INT)paiResults->ai_addrlen);
-
-    /* WSAEventSelect made the socket non-blocking, so an immediate
-       WSAEWOULDBLOCK is the expected result, not a failure. */
-    if (SOCKET_ERROR == iResult)
-    {
-        if (WSAEWOULDBLOCK != WSAGetLastError())
-        {
-            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
-            goto EXIT_CONNECT;
-        }
-
-        SockStatus = WaitForNetworkOrAbort(hEvent, dwTimeoutMs, hAbort);
-
-        if (SOCKET_IS_ERROR(SockStatus))
-        {
-            goto EXIT_CONNECT;
-        }
-
-        iResult = WSAEnumNetworkEvents(sSocket, hEvent, &NetEvents);
-
-        if (SOCKET_ERROR == iResult)
-        {
-            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
-            goto EXIT_CONNECT;
-        }
-
-        if (0 == (NetEvents.lNetworkEvents & FD_CONNECT))
-        {
-            SockStatus = SOCKET_STATUS_TIMEOUT;
-            goto EXIT_CONNECT;
-        }
-
-        /* A refused or unreachable target surfaces here, not from connect. */
-        if (0 != NetEvents.iErrorCode[FD_CONNECT_BIT])
-        {
-            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
-            goto EXIT_CONNECT;
-        }
-    }
-
+    /* FD_CONNECT is in the mask only until the handshake completes; it is
+       replaced here so the caller never has to filter it out again. */
     iResult = WSAEventSelect(sSocket, hEvent, SOCKET_CONN_EVENTS);
 
     if (SOCKET_ERROR == iResult)
@@ -512,7 +550,7 @@ SocketConnConnect(_Inout_ PSOCKET_CONN pConn,
 
     /* ai_addrlen comes from the resolver rather than from us, so clamp it
        before it becomes a length argument to CopyMemory. */
-    cbPeer = (SIZE_T)paiResults->ai_addrlen;
+    cbPeer = (SIZE_T)paiEntry->ai_addrlen;
 
     if (sizeof(pConn->PeerAddr) < cbPeer)
     {
@@ -522,7 +560,7 @@ SocketConnConnect(_Inout_ PSOCKET_CONN pConn,
     pConn->Socket   = sSocket;
     pConn->hEvent   = hEvent;
     pConn->iPeerLen = (INT)cbPeer;
-    CopyMemory(&pConn->PeerAddr, paiResults->ai_addr, cbPeer);
+    CopyMemory(&pConn->PeerAddr, paiEntry->ai_addr, cbPeer);
 
     sSocket    = INVALID_SOCKET;
     hEvent     = WSA_INVALID_EVENT;
@@ -609,6 +647,7 @@ SocketConnRecv(_In_ PSOCKET_CONN                  pConn,
     DWORD     dwRead   = 0;
     DWORD     dwFlags  = 0;
     INT       iResult  = 0;
+    INT       iError   = 0;
 
     if (NULL != pcbRead)
     {
@@ -641,7 +680,9 @@ SocketConnRecv(_In_ PSOCKET_CONN                  pConn,
         goto EXIT_RECV;
     }
 
-    switch (WSAGetLastError())
+    iError = WSAGetLastError();
+
+    switch (iError)
     {
     case WSAEWOULDBLOCK:
         IoResult = SOCKET_IO_WOULD_BLOCK;
@@ -681,6 +722,7 @@ SocketConnSend(_In_ PSOCKET_CONN                  pConn,
     WSABUF    WsaBuf   = {0};
     DWORD     dwSent   = 0;
     INT       iResult  = 0;
+    INT       iError   = 0;
 
     if (NULL != pcbSent)
     {
@@ -709,7 +751,9 @@ SocketConnSend(_In_ PSOCKET_CONN                  pConn,
         goto EXIT_SEND;
     }
 
-    switch (WSAGetLastError())
+    iError = WSAGetLastError();
+
+    switch (iError)
     {
     case WSAEWOULDBLOCK:
         IoResult = SOCKET_IO_WOULD_BLOCK;
@@ -1054,5 +1098,109 @@ EXIT_CREATE_SOCKET:
     return SockStatus;
 
 } /* CreateEventSocket */
+
+static SOCKET_STATUS ConnectOneAddress(_In_ PADDRINFOW paiEntry,
+                                       _In_ DWORD      dwTimeoutMs,
+                                       _In_opt_ HANDLE hAbort,
+                                       _Out_ SOCKET   *pSocket,
+                                       _Out_ WSAEVENT *phEvent)
+{
+    SOCKET_STATUS    SockStatus = SOCKET_STATUS_ERROR;
+    WSANETWORKEVENTS NetEvents  = {0};
+    SOCKET           sSocket    = INVALID_SOCKET;
+    WSAEVENT         hEvent     = WSA_INVALID_EVENT;
+    INT              iResult    = 0;
+    INT              iError     = 0;
+
+    if (NULL != pSocket)
+    {
+        *pSocket = INVALID_SOCKET;
+    }
+
+    if (NULL != phEvent)
+    {
+        *phEvent = WSA_INVALID_EVENT;
+    }
+
+    if ((NULL == paiEntry) || (NULL == pSocket) || (NULL == phEvent))
+    {
+        SockStatus = SOCKET_STATUS_INVALID_ARGS;
+        goto EXIT_CONNECT_ONE;
+    }
+
+    SockStatus = CreateEventSocket(paiEntry, FD_CONNECT | SOCKET_CONN_EVENTS, &sSocket, &hEvent);
+
+    if (SOCKET_IS_ERROR(SockStatus))
+    {
+        goto EXIT_CONNECT_ONE;
+    }
+
+    iResult = connect(sSocket, paiEntry->ai_addr, (INT)paiEntry->ai_addrlen);
+
+    /* WSAEventSelect made the socket non-blocking, so an immediate
+       WSAEWOULDBLOCK is the expected result, not a failure. */
+    if (SOCKET_ERROR == iResult)
+    {
+        iError = WSAGetLastError();
+
+        if (WSAEWOULDBLOCK != iError)
+        {
+            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
+            goto EXIT_CONNECT_ONE;
+        }
+
+        SockStatus = WaitForNetworkOrAbort(hEvent, dwTimeoutMs, hAbort);
+
+        if (SOCKET_IS_ERROR(SockStatus))
+        {
+            goto EXIT_CONNECT_ONE;
+        }
+
+        iResult = WSAEnumNetworkEvents(sSocket, hEvent, &NetEvents);
+
+        if (SOCKET_ERROR == iResult)
+        {
+            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
+            goto EXIT_CONNECT_ONE;
+        }
+
+        if (0 == (NetEvents.lNetworkEvents & FD_CONNECT))
+        {
+            SockStatus = SOCKET_STATUS_TIMEOUT;
+            goto EXIT_CONNECT_ONE;
+        }
+
+        /* A refused or unreachable target surfaces here, not from connect. */
+        if (0 != NetEvents.iErrorCode[FD_CONNECT_BIT])
+        {
+            SockStatus = SOCKET_STATUS_CONNECT_ERROR;
+            goto EXIT_CONNECT_ONE;
+        }
+    }
+
+    *pSocket = sSocket;
+    *phEvent = hEvent;
+
+    sSocket    = INVALID_SOCKET;
+    hEvent     = WSA_INVALID_EVENT;
+    SockStatus = SOCKET_STATUS_SUCCESS;
+
+EXIT_CONNECT_ONE:
+
+    if (WSA_INVALID_EVENT != hEvent)
+    {
+        (VOID) WSACloseEvent(hEvent);
+        hEvent = WSA_INVALID_EVENT;
+    }
+
+    if (INVALID_SOCKET != sSocket)
+    {
+        (VOID) closesocket(sSocket);
+        sSocket = INVALID_SOCKET;
+    }
+
+    return SockStatus;
+
+} /* ConnectOneAddress */
 
 /* end of file */

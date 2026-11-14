@@ -14,6 +14,17 @@ from snailnet_tests import EchoServer, SourceServer, payload
 from snailnet_tests.support import connect
 
 
+def test_window_shows_the_version(app, expected_version):
+    """The version from Version.h is under the title and on the About tab."""
+    label = app.version_label()
+    about = app.about_text()
+
+    assert label == f"Version {expected_version}", f"version line is {label!r}"
+    assert about.startswith(
+        f"SnailNet {expected_version}\r\n"
+    ), f"About does not open with the version: {about[:60]!r}"
+
+
 def test_stop_returns_to_idle_and_frees_the_port(app, ports):
     """Stop closes the listener and the application comes back to idle."""
     with EchoServer(ports.target):

@@ -30,7 +30,7 @@
 #include "Snailnet.h"
 #include "Ui.h"
 
-#define COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
+#define COUNT_OF(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 /** One labelled edit box on the Relay tab. */
 typedef struct _FIELD_DEF
@@ -53,9 +53,18 @@ static CONST FIELD_DEF g_aFields[] = {
     {LABEL_TARGET_PORT, IDC_LABEL_TARGET_PORT, IDC_TARGET_PORT, DEFAULT_TARGET_PORT},
     {LABEL_LATENCY, IDC_LABEL_LATENCY, IDC_LATENCY, DEFAULT_LATENCY}};
 
+/** The delay list's entries, indexed by SNAILNET_DELAY_DIR. Added in this
+    order, so an item's index is its direction. */
+static CONST PCWSTR g_apszDelayDirs[] = {
+    ITEM_DELAY_TO_CLIENT, ITEM_DELAY_TO_TARGET, ITEM_DELAY_BOTH};
+
+_Static_assert(COUNT_OF(g_apszDelayDirs) == DELAY_DIR_COUNT,
+               "g_apszDelayDirs needs one label per SNAILNET_DELAY_DIR");
+
 /** Controls belonging to each tab, shown and hidden as a group. */
 static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
                                     IDC_TITLE,
+                                    IDC_VERSION,
                                     IDC_LABEL_LISTEN_ADDR,
                                     IDC_LISTEN_ADDR,
                                     IDC_LABEL_LISTEN_PORT,
@@ -66,6 +75,8 @@ static CONST INT g_aiRelayCtls[] = {IDC_SNAIL,
                                     IDC_TARGET_PORT,
                                     IDC_LABEL_LATENCY,
                                     IDC_LATENCY,
+                                    IDC_LABEL_DELAY_DIR,
+                                    IDC_DELAY_DIR,
                                     IDC_START,
                                     IDC_STOP};
 
@@ -148,13 +159,17 @@ static VOID GetMinWindowSize(_In_opt_ HWND hWindow, _Out_opt_ PSIZE pSize);
  *
  * @param hWindow Main window. May be NULL.
  * @param iCtlId  Control identifier.
- * @param x       Left edge.
- * @param y       Top edge.
- * @param cx      Width.
- * @param cy      Height.
+ * @param iPosX   Left edge.
+ * @param iPosY   Top edge.
+ * @param iWidth  Width.
+ * @param iHeight Height.
  */
-static VOID
-PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy);
+static VOID PlaceCtl(_In_opt_ HWND hWindow,
+                     _In_ INT      iCtlId,
+                     _In_ INT      iPosX,
+                     _In_ INT      iPosY,
+                     _In_ INT      iWidth,
+                     _In_ INT      iHeight);
 
 /**
  * @brief Positions every control for the current client size and DPI.
@@ -162,6 +177,20 @@ PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ IN
  * @param hWindow Main window. May be NULL.
  */
 static VOID LayoutControls(_In_opt_ HWND hWindow);
+
+/**
+ * @brief Makes a drop down list's closed field a given height.
+ *
+ * @details The field's height is its item height plus a frame whose
+ * thickness depends on the theme and DPI, so it is measured rather than
+ * assumed: set the item height, see how tall the field came out, and
+ * correct by the difference.
+ *
+ * @param hWindow Main window. May be NULL.
+ * @param iCtlId  Combo box identifier.
+ * @param iHeight Height wanted for the closed field.
+ */
+static VOID SizeComboField(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT iHeight);
 
 /**
  * @brief EnumChildWindows callback that applies one font.
@@ -213,10 +242,11 @@ static VOID BuildControls(_In_opt_ HWND hWindow);
 
 HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_ PINT piStatus)
 {
-    INITCOMMONCONTROLSEX Controls   = {0};
-    SIZE                 WindowSize = {0};
-    HWND                 hWindow    = NULL;
-    INT                  iStatus    = SNAILNET_SUCCESS;
+    INITCOMMONCONTROLSEX Controls    = {0};
+    SIZE                 WindowSize  = {0};
+    HWND                 hWindow     = NULL;
+    INT                  iStatus     = SNAILNET_SUCCESS;
+    BOOL                 bRegistered = FALSE;
 
     if (NULL == hInstance)
     {
@@ -230,7 +260,9 @@ HWND WindowCreate(_In_opt_ HINSTANCE hInstance, _In_ INT iShowCommand, _Out_opt_
     Controls.dwICC  = ICC_TAB_CLASSES;
     (VOID) InitCommonControlsEx(&Controls);
 
-    if (!RegisterMainClass(hInstance))
+    bRegistered = RegisterMainClass(hInstance);
+
+    if (!bRegistered)
     {
         MessageBoxW(NULL, MSG_FAIL_REGISTER, PROJ_NAME, MB_ICONERROR);
         iStatus = SNAILNET_FAIL_TO_REGISTER;
@@ -627,8 +659,12 @@ EXIT_GET_MIN_SIZE:
 
 } /* GetMinWindowSize */
 
-static VOID
-PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ INT cx, _In_ INT cy)
+static VOID PlaceCtl(_In_opt_ HWND hWindow,
+                     _In_ INT      iCtlId,
+                     _In_ INT      iPosX,
+                     _In_ INT      iPosY,
+                     _In_ INT      iWidth,
+                     _In_ INT      iHeight)
 {
     HWND hCtl = NULL;
 
@@ -641,7 +677,7 @@ PlaceCtl(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT x, _In_ INT y, _In_ IN
 
     if (NULL != hCtl)
     {
-        (VOID) MoveWindow(hCtl, x, y, cx, cy, FALSE);
+        (VOID) MoveWindow(hCtl, iPosX, iPosY, iWidth, iHeight, FALSE);
     }
 
 EXIT_PLACE_CTL:
@@ -664,10 +700,18 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
     INT    iRowH      = 0;
     INT    iButtonW   = 0;
     INT    iWidth     = 0;
-    INT    x          = 0;
-    INT    y          = 0;
+    INT    iPosX      = 0;
+    INT    iPosY      = 0;
+    BOOL   bGotRect   = FALSE;
 
-    if ((NULL == hWindow) || !GetClientRect(hWindow, &Client))
+    if (NULL == hWindow)
+    {
+        goto EXIT_LAYOUT;
+    }
+
+    bGotRect = GetClientRect(hWindow, &Client);
+
+    if (!bGotRect)
     {
         goto EXIT_LAYOUT;
     }
@@ -718,8 +762,8 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
              Panel.right - Panel.left,
              Panel.bottom - Panel.top);
 
-    x        = Panel.left + Scale(PANEL_PAD, uDpi);
-    y        = Panel.top + Scale(PANEL_PAD, uDpi);
+    iPosX    = Panel.left + Scale(PANEL_PAD, uDpi);
+    iPosY    = Panel.top + Scale(PANEL_PAD, uDpi);
     iWidth   = (Panel.right - Panel.left) - Scale(2 * PANEL_PAD, uDpi);
     iIcon    = Scale(ICON_SIZE, uDpi);
     iGap     = Scale(BUTTON_GAP, uDpi);
@@ -727,20 +771,52 @@ static VOID LayoutControls(_In_opt_ HWND hWindow)
     iRowH    = Scale(ROW_H, uDpi);
     iButtonW = Scale(BUTTON_W, uDpi);
 
-    PlaceCtl(hWindow, IDC_SNAIL, x, y, iIcon, iIcon);
-    PlaceCtl(hWindow, IDC_TITLE, x + iIcon + iGap, y, iWidth - iIcon - iGap, iIcon);
-    y += Scale(HEADER_H, uDpi);
+    PlaceCtl(hWindow, IDC_SNAIL, iPosX, iPosY, iIcon, iIcon);
+    PlaceCtl(hWindow, IDC_TITLE, iPosX + iIcon + iGap, iPosY, iWidth - iIcon - iGap, iIcon);
+
+    /* Directly under the title, lined up with its left edge, in the space
+       HEADER_H leaves below the icon row. */
+    PlaceCtl(hWindow,
+             IDC_VERSION,
+             iPosX + iIcon + iGap,
+             iPosY + iIcon,
+             iWidth - iIcon - iGap,
+             Scale(VERSION_H, uDpi));
+    iPosY += Scale(HEADER_H, uDpi);
 
     /* Labels keep their width; the edit boxes take what is left. */
     for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
     {
-        PlaceCtl(hWindow, g_aFields[iIndex].iLabelId, x, y, iLabelW, iRowH);
-        PlaceCtl(hWindow, g_aFields[iIndex].iCtlId, x + iLabelW, y, iWidth - iLabelW, iRowH);
-        y += iRowH + Scale(ROW_GAP, uDpi);
+        PlaceCtl(hWindow, g_aFields[iIndex].iLabelId, iPosX, iPosY, iLabelW, iRowH);
+        PlaceCtl(hWindow,
+                 g_aFields[iIndex].iCtlId,
+                 iPosX + iLabelW,
+                 iPosY,
+                 iWidth - iLabelW,
+                 iRowH);
+        iPosY += iRowH + Scale(ROW_GAP, uDpi);
     }
 
-    PlaceCtl(hWindow, IDC_START, x + iLabelW, y, iButtonW, Scale(BUTTON_H, uDpi));
-    PlaceCtl(hWindow, IDC_STOP, x + iLabelW + iButtonW + iGap, y, iButtonW, Scale(BUTTON_H, uDpi));
+    /* A drop down list's height includes the list it opens, so the field
+       itself is sized through its item height instead. Done on every layout
+       because WM_SETFONT, sent on each DPI change, resets it. */
+    PlaceCtl(hWindow, IDC_LABEL_DELAY_DIR, iPosX, iPosY, iLabelW, iRowH);
+    PlaceCtl(hWindow,
+             IDC_DELAY_DIR,
+             iPosX + iLabelW,
+             iPosY,
+             iWidth - iLabelW,
+             iRowH * (1 + COMBO_DROP));
+    SizeComboField(hWindow, IDC_DELAY_DIR, iRowH);
+    iPosY += iRowH + Scale(ROW_GAP, uDpi);
+
+    PlaceCtl(hWindow, IDC_START, iPosX + iLabelW, iPosY, iButtonW, Scale(BUTTON_H, uDpi));
+    PlaceCtl(hWindow,
+             IDC_STOP,
+             iPosX + iLabelW + iButtonW + iGap,
+             iPosY,
+             iButtonW,
+             Scale(BUTTON_H, uDpi));
 
     /* One repaint for the whole move. The transparent labels do not erase
        where they were, so the background has to be redrawn under them. */
@@ -751,6 +827,55 @@ EXIT_LAYOUT:
     return;
 
 } /* LayoutControls */
+
+static VOID SizeComboField(_In_opt_ HWND hWindow, _In_ INT iCtlId, _In_ INT iHeight)
+{
+    RECT    Bounds   = {0};
+    HWND    hCombo   = NULL;
+    LRESULT lItemH   = 0;
+    INT     iFieldH  = 0;
+    BOOL    bGotRect = FALSE;
+
+    if (NULL == hWindow)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    hCombo = GetDlgItem(hWindow, iCtlId);
+
+    if (NULL == hCombo)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    lItemH = SendMessageW(hCombo, CB_GETITEMHEIGHT, (WPARAM)-1, 0);
+
+    if (CB_ERR == lItemH)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    bGotRect = GetWindowRect(hCombo, &Bounds);
+
+    if (!bGotRect)
+    {
+        goto EXIT_SIZE_COMBO;
+    }
+
+    /* A closed drop down list reports only its field here, not the list. */
+    iFieldH = Bounds.bottom - Bounds.top;
+    lItemH += (LRESULT)(iHeight - iFieldH);
+
+    if (0 < lItemH)
+    {
+        (VOID) SendMessageW(hCombo, CB_SETITEMHEIGHT, (WPARAM)-1, (LPARAM)lItemH);
+    }
+
+EXIT_SIZE_COMBO:
+
+    return;
+
+} /* SizeComboField */
 
 static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 {
@@ -766,8 +891,9 @@ static BOOL CALLBACK ApplyFontToChild(_In_opt_ HWND hChild, _In_ LPARAM lpFont)
 
 static VOID ApplyUiFont(_In_opt_ HWND hWindow)
 {
-    NONCLIENTMETRICSW Metrics = {0};
-    HFONT             hFont   = NULL;
+    NONCLIENTMETRICSW Metrics  = {0};
+    HFONT             hFont    = NULL;
+    BOOL              bMetrics = FALSE;
 
     if (NULL == hWindow)
     {
@@ -776,7 +902,9 @@ static VOID ApplyUiFont(_In_opt_ HWND hWindow)
 
     Metrics.cbSize = sizeof(Metrics);
 
-    if (!SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(Metrics), &Metrics, 0))
+    bMetrics = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(Metrics), &Metrics, 0);
+
+    if (!bMetrics)
     {
         goto EXIT_APPLY_UI_FONT;
     }
@@ -910,6 +1038,7 @@ static VOID BuildControls(_In_opt_ HWND hWindow)
 
     AddCtl(hWindow, 0, WND_CLASS_STATIC, NULL, WS_CHILD | SS_ICON, IDC_SNAIL);
     AddCtl(hWindow, 0, WND_CLASS_STATIC, PROJ_NAME, WS_CHILD | SS_CENTERIMAGE, IDC_TITLE);
+    AddCtl(hWindow, 0, WND_CLASS_STATIC, LABEL_VERSION, WS_CHILD | SS_NOPREFIX, IDC_VERSION);
 
     for (iIndex = 0; iIndex < COUNT_OF(g_aFields); iIndex++)
     {
@@ -926,6 +1055,32 @@ static VOID BuildControls(_In_opt_ HWND hWindow)
                WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
                g_aFields[iIndex].iCtlId);
     }
+
+    /* After the edit boxes and before the buttons, so tab order follows the
+       form top to bottom. */
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_STATIC,
+           LABEL_DELAY_DIR,
+           WS_CHILD | SS_CENTERIMAGE,
+           IDC_LABEL_DELAY_DIR);
+    AddCtl(hWindow,
+           0,
+           WND_CLASS_COMBOBOX,
+           NULL,
+           WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+           IDC_DELAY_DIR);
+
+    for (iIndex = 0; iIndex < COUNT_OF(g_apszDelayDirs); iIndex++)
+    {
+        (VOID) SendDlgItemMessageW(hWindow,
+                                   IDC_DELAY_DIR,
+                                   CB_ADDSTRING,
+                                   0,
+                                   (LPARAM)g_apszDelayDirs[iIndex]);
+    }
+
+    (VOID) SendDlgItemMessageW(hWindow, IDC_DELAY_DIR, CB_SETCURSEL, (WPARAM)DEFAULT_DELAY_DIR, 0);
 
     AddCtl(hWindow,
            0,
