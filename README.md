@@ -13,6 +13,8 @@ This README is for developers working on SnailNet. **If you just want to
 use it, see the [User Guide](Docs/userguide.md)**, which ships as a PDF
 alongside `SnailNet.exe` in every release.
 
+[Youtube Demonstration](https://youtu.be/Uz3TkmvdeTM?si=CJbAqyPzyHt6NEU8)
+
 ## Table of Contents
 
 - [Requirements](#requirements)
